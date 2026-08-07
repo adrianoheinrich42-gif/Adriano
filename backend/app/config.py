@@ -31,6 +31,21 @@ class Settings(BaseSettings):
     # Prepared Statements. Dann hier auf `true` setzen. Siehe Projektplan 2.3.
     database_disable_statement_cache: bool = False
 
+    # --- Supabase Auth (M2) ----------------------------------------------
+    # Supabase stellt die Token aus, wir prüfen sie nur. Das Geheimnis steht
+    # im Supabase-Dashboard unter "Project Settings → API → JWT Secret".
+    #
+    # Bewusst nur das *symmetrische* Verfahren (HS256): ein gemeinsames
+    # Geheimnis, keine Netzwerkabfrage, keine zusätzliche Krypto-Bibliothek.
+    # Der asymmetrische Weg (JWKS-Schlüssel per HTTPS holen) lässt sich
+    # später in `app/core/security.py` ergänzen, ohne dass die Endpunkte
+    # sich ändern — sie kennen nur `get_current_user`.
+    supabase_url: str = ""
+    supabase_jwt_secret: str = ""
+
+    # Supabase setzt für eingeloggte Nutzer immer `aud: "authenticated"`.
+    supabase_jwt_audience: str = "authenticated"
+
     # --- CORS ------------------------------------------------------------
     # Für die iOS-App irrelevant (native Apps kennen keine CORS-Regel),
     # aber nützlich, falls du das Backend im Browser testest.

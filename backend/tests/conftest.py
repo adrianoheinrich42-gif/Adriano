@@ -52,7 +52,15 @@ async def db_session() -> AsyncIterator[AsyncSession]:
             await transaction.rollback()
             pytest.skip("Schema fehlt — bitte zuerst 'uv run alembic upgrade head' ausführen.")
 
-        session = AsyncSession(bind=connection, expire_on_commit=False)
+        # `join_transaction_mode="create_savepoint"`: Ein `session.commit()`
+        # im getesteten Code (z. B. beim Anlegen eines Nutzers) gibt dann nur
+        # einen SAVEPOINT frei, statt die äußere Transaktion zu beenden. Das
+        # abschließende Rollback räumt trotzdem alles weg.
+        session = AsyncSession(
+            bind=connection,
+            expire_on_commit=False,
+            join_transaction_mode="create_savepoint",
+        )
         try:
             yield session
         finally:

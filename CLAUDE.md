@@ -56,13 +56,16 @@ noch nicht gemeldetes Angebot → Push. Vollständig in `docs/PROJEKTPLAN.md` §
 ```
 backend/app/
   main.py            FastAPI-App, Router, lifespan
-  config.py          Settings aus ENV (DB-URL, CORS, Pooler-Schalter)
+  config.py          Settings aus ENV (DB-URL, CORS, Pooler-Schalter, Supabase)
   db.py              async Engine/Session, is_database_reachable()
-  api/routes/        Endpunkte — aktuell nur health.py (GET /health)
+  api/deps.py        get_token_claims (ohne DB) + get_current_user / CurrentUser
+  api/routes/        health.py (GET /health), auth.py (GET /me)
+  core/security.py   JWT-Prüfung der Supabase-Token (HS256)
   models/            6 SQLAlchemy-Tabellen (+ mixins.py, __init__ importiert alle)
-  core/ schemas/ services/ jobs/   leer, Zielorte für M2+ (siehe backend/README)
+  services/users.py  Nutzer-Upsert beim ersten authentifizierten Request
+  schemas/ jobs/     leer, Zielorte für M3+ (siehe backend/README)
   alembic/           env.py (async, URL aus config), versions/ (1 Migration)
-  tests/             test_health.py (ohne DB), integration/ (mit DB), conftest.py
+  tests/             test_health.py, test_auth.py (ohne DB), integration/ (mit DB)
 web/                 Frontend: index.html, app.js, config.js, styles.css
 docs/PROJEKTPLAN.md  Referenz: Architektur, Datenmodell, Meilensteine, Risiken
 docs/PLATTFORM-WEB.md  iOS→Web-Wechsel + alle Deltas zum Projektplan
@@ -107,6 +110,12 @@ Statistik), `flight_offers` (konkrete Angebote), `device_tokens` (Push-Ziel),
   Instanzen = doppelte Läufe → dann externer Cron + `FOR UPDATE SKIP LOCKED`.
 - **`/health` gibt immer HTTP 200** (Zustand im Body) — hält den Client simpel;
   echte 503-Readiness erst bei M12.
+- **JWT-Prüfung nur symmetrisch (HS256)** — ein gemeinsames Geheimnis, kein
+  JWKS-Abruf, keine Krypto-Bibliothek. Erweiterung auf RS256/ES256 betrifft
+  ausschließlich `app/core/security.py`; Endpunkte kennen nur `CurrentUser`.
+- **Nutzer-Zeile per Upsert beim ersten authentifizierten Request**, kein
+  Supabase-Webhook: weniger Teile, und auch früher registrierte Nutzer bekommen
+  ihre Zeile.
 
 ## Befehle
 
@@ -130,14 +139,16 @@ DB: `docker compose up -d db`. Kürzel im **Makefile** (`make help`).
   Umgebung hat oft keinen Docker-Daemon, aber Postgres ist per apt installierbar
   (`/usr/lib/postgresql/16/bin`, mit `initdb`/`pg_ctl` als User `postgres`
   starten) — so lässt sich der DB-Pfad echt testen.
-- **Ohne DB:** `pytest` meldet `2 passed, 16 skipped` (Integrationstests
-  überspringen sich selbst). Mit DB: `18 passed`. Beides ist „grün".
-- **Branch:** `claude/flight-price-alert-app-8sh4sy`. Hier entwickeln, committen,
-  pushen (`git push -u origin <branch>`). Keine PR ohne Auftrag.
+- **Ohne DB:** `pytest` meldet `17 passed, 21 skipped` (Integrationstests
+  überspringen sich selbst). Mit DB: `38 passed`. Beides ist „grün".
+- **Branch:** der in der Session vorgegebene Entwicklungs-Branch (zuletzt
+  `claude/project-handoff-continuation-3tzcq4`, davor
+  `claude/flight-price-alert-app-8sh4sy`). Dort entwickeln, committen, pushen
+  (`git push -u origin <branch>`). Keine PR ohne Auftrag.
 - **Commit-Footer** (jeder Commit):
   ```
   Co-Authored-By: Claude <noreply@anthropic.com>
-  Claude-Session: https://claude.ai/code/session_011GZSyL9be1cXvHuh9bv4gd
+  Claude-Session: <URL der laufenden Session>
   ```
   Modell-ID nie in Commits/Code schreiben.
 - **`docs/PROJEKTPLAN.md`** ist die inhaltliche Referenz; bei Client/Push gilt

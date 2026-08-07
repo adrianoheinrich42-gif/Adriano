@@ -14,6 +14,9 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0.36",
     "alembic>=1.14",
     "asyncpg>=0.30",
+    # JWT-Prüfung der Supabase-Token (M2). Reicht für HS256; für die
+    # asymmetrische Variante (RS256/ES256) käme "pyjwt[crypto]" dazu.
+    "pyjwt>=2.9",
 ]
 
 [dependency-groups]
