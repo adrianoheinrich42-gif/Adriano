@@ -129,6 +129,15 @@ Statistik), `flight_offers` (konkrete Angebote), `device_tokens` (Push-Ziel),
 
 ## Befehle
 
+**Frisch geklont oder entpackt** (aus `backend/`, in dieser Reihenfolge):
+```
+cp .env.example .env                 # .env ist gitignored, fehlt also immer
+uv sync                              # legt .venv an (nicht im Repo/ZIP)
+docker compose up -d db              # oder lokales Postgres, siehe HANDOFF
+uv run alembic upgrade head          # Schema anlegen
+uv run pytest -q                     # muss grün sein, bevor es weitergeht
+```
+
 Backend (aus `backend/`):
 ```
 uv sync                              # Abhängigkeiten
