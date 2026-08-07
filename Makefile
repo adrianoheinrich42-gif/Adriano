@@ -1,4 +1,5 @@
-.PHONY: help install db-up db-down dev test lint fmt check up down clean
+.PHONY: help install db-up db-down dev test lint fmt check up down clean \
+        migrate migrate-down migration migration-check db-shell
 
 help:  ## Zeigt diese Hilfe
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -12,6 +13,21 @@ db-up:  ## Nur Postgres starten
 
 db-down:  ## Postgres stoppen
 	docker compose stop db
+
+db-shell:  ## psql-Konsole auf der lokalen Datenbank
+	docker compose exec db psql -U flugalarm -d flugalarm
+
+migrate:  ## Schema auf den neuesten Stand bringen
+	cd backend && uv run alembic upgrade head
+
+migrate-down:  ## Eine Migration zurücknehmen
+	cd backend && uv run alembic downgrade -1
+
+migration:  ## Neue Migration aus Modelländerungen erzeugen: make migration m="beschreibung"
+	cd backend && uv run alembic revision --autogenerate -m "$(m)"
+
+migration-check:  ## Weichen Modelle und Datenbank voneinander ab?
+	cd backend && uv run alembic check
 
 dev:  ## API lokal mit Auto-Reload starten (Postgres muss laufen)
 	cd backend && uv run uvicorn app.main:app --reload --port 8000

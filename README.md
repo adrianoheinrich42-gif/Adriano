@@ -4,8 +4,9 @@ Lern- und Portfolioprojekt: native iOS-App (SwiftUI), die Flugpreis-Alarme
 verwaltet, plus ein Python-Backend (FastAPI), das die Preise zeitgesteuert
 überwacht und bei passenden Angeboten eine Push-Benachrichtigung schickt.
 
-**Stand: Meilenstein M0 (Setup) abgeschlossen.**
-Backend läuft, Datenbank ist angebunden, App zeigt den Backend-Status an.
+**Stand: M0 (Setup) und M1 (Datenbankmodell) abgeschlossen.**
+Backend läuft, das vollständige Schema ist migriert, App zeigt den
+Backend-Status an.
 
 📄 Planungsgrundlage: **[docs/PROJEKTPLAN.md](docs/PROJEKTPLAN.md)** —
 Architektur, Datenmodell, Ablauf, alle Meilensteine, Risiken, Teststrategie.
@@ -20,10 +21,11 @@ Voraussetzungen: Docker, [uv](https://docs.astral.sh/uv/), Xcode 16+.
 # 1. Datenbank starten
 docker compose up -d db
 
-# 2. Backend einrichten und starten
+# 2. Backend einrichten, Schema anlegen, starten
 cd backend
 cp .env.example .env
 uv sync
+uv run alembic upgrade head
 uv run uvicorn app.main:app --reload
 ```
 
@@ -48,24 +50,33 @@ Alle Befehle sind auch als `make`-Ziele hinterlegt — `make help` zeigt sie an.
 
 ---
 
-## Was in M0 entstanden ist
+## Was bisher entstanden ist
 
 ```
 .
 ├── docker-compose.yml       Postgres 16 (+ optional die API im Container)
-├── Makefile                 Kurzbefehle für den Alltag
+├── Makefile                 Kurzbefehle für den Alltag — `make help`
 ├── docs/PROJEKTPLAN.md      Die vollständige Planung
 ├── backend/                 FastAPI, siehe backend/README.md
-│   ├── app/                 main, config, db, api/routes/health
-│   └── tests/               2 Tests, laufen ohne Datenbank
+│   ├── app/models/          die sechs Tabellen des MVP
+│   ├── alembic/versions/    Migrationen
+│   └── tests/               18 Tests (2 ohne DB, 16 Integrationstests)
 └── ios/                     SwiftUI-App, siehe ios/README.md
     └── FlugAlarm/           App, APIClient, ViewModel, Modelle
 ```
 
-Der `/health`-Endpunkt ist bewusst mehr als „Hello World": Er prüft die
-Datenbankverbindung und antwortet auch dann, wenn sie fehlt. Die App stellt
+**M0** — Der `/health`-Endpunkt ist bewusst mehr als „Hello World": Er prüft
+die Datenbankverbindung und antwortet auch dann, wenn sie fehlt. Die App stellt
 Lade-, Erfolgs- und Fehlerzustand schon jetzt getrennt dar — genau das Muster,
 das ab M4 jeder Bildschirm bekommt.
+
+**M1** — Das Schema enthält nicht nur Spalten, sondern die Regeln selbst:
+Startflughafen ≠ Zielflughafen, Rückflug nicht vor Hinflug, IATA-Codes in
+Großbuchstaben, Prüfintervall mindestens 15 Minuten. Und der UNIQUE-Index auf
+`notification_logs.dedupe_key` — der Schutz vor doppelten Push-Nachrichten —
+ist eine Datenbank-Garantie, keine Programmlogik, die man vergessen kann.
+16 Integrationstests belegen das; ohne laufende Datenbank überspringen sie sich
+selbst, statt rot zu werden.
 
 ## Geplanter Aufbau
 
@@ -90,6 +101,5 @@ das ab M4 jeder Bildschirm bekommt.
 
 ## Nächster Schritt
 
-**M1 — Datenbankmodell.** Alembic einrichten und die sechs Tabellen aus
-Abschnitt 3 des Projektplans als erste Migration anlegen. Abnahme:
-`alembic upgrade head` läuft auf einer leeren Datenbank fehlerfrei durch.
+**M2 — Auth-Kette.** Supabase-Projekt anlegen, JWT-Prüfung im Backend,
+`GET /me` gibt mit gültigem Token die User-ID zurück.
