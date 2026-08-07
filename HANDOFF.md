@@ -1,12 +1,13 @@
 # HANDOFF.md — Arbeitsstand
 
 **Stand:** 2026-08-07 · Branch `claude/project-handoff-continuation-3tzcq4` ·
-Arbeitsverzeichnis **sauber**, alles committet und **gepusht**.
+Arbeitsverzeichnis **sauber**, alles committet und **gepusht** (`49ffcd3`).
 Zuerst `CLAUDE.md` lesen, dann diese Datei, dann `git log` / `git status`.
+
+Meilenstein-Commits (dazwischen liegen reine Doku-Commits):
 
 ```
 db30665 M5 — Amadeus-Anbindung
-7fa7c6f docs: Handoff für die nächste Session
 68a2125 M3 — CRUD für Preisalarme
 9a5aefa M2 — Auth-Kette mit Supabase-JWT
 99334da Plattformwechsel iOS → Web-App (PWA)
@@ -89,11 +90,12 @@ Ausführlich in `CLAUDE.md`; hier die Merksätze:
 - **Ein kaputtes Angebot kippt nicht den ganzen Lauf** — es wird übersprungen
   und protokolliert. 19 brauchbare Angebote sind besser als keins.
 
-## Verifizierter Zustand (in dieser Umgebung geprüft)
+## Verifizierter Zustand (zuletzt real nachgeprüft, nicht nur behauptet)
 
 - **Tests:** mit DB `112 passed`; ohne DB `80 passed, 32 skipped`. Beides grün.
-- `ruff format`/`ruff check` sauber, `mypy app` (strict) sauber,
-  `alembic check` ohne Drift.
+  Diese Zahlen sind der Soll-Wert für die nächste Session — weicht etwas ab,
+  ist etwas kaputt oder es kam Neues dazu.
+- `ruff check` sauber, `mypy app` (strict) sauber, `alembic check` ohne Drift.
 - Die Fixture durch die Anzeige-Logik des Skripts geschickt: zwei Angebote
   korrekt formatiert (189,50 € mit 1 Umstieg und „Gepäck: unbekannt";
   249,90 € direkt mit „1 Stück"), das Angebot mit zwei Umstiegen gefiltert.
