@@ -59,13 +59,14 @@ backend/app/
   config.py          Settings aus ENV (DB-URL, CORS, Pooler-Schalter, Supabase)
   db.py              async Engine/Session, is_database_reachable()
   api/deps.py        get_token_claims (ohne DB) + get_current_user / CurrentUser
-  api/routes/        health.py (GET /health), auth.py (GET /me)
+  api/routes/        health.py, auth.py (GET /me), price_alerts.py (CRUD /alerts)
   core/security.py   JWT-Prüfung der Supabase-Token (HS256)
   models/            6 SQLAlchemy-Tabellen (+ mixins.py, __init__ importiert alle)
-  services/users.py  Nutzer-Upsert beim ersten authentifizierten Request
-  schemas/ jobs/     leer, Zielorte für M3+ (siehe backend/README)
+  schemas/           price_alert.py (Create/Update/Response + geteilte Regeln)
+  services/          users.py (Upsert), price_alerts.py (CRUD, Besitz, Limit)
+  jobs/              leer, Zielort für M6 (siehe backend/README)
   alembic/           env.py (async, URL aus config), versions/ (1 Migration)
-  tests/             test_health.py, test_auth.py (ohne DB), integration/ (mit DB)
+  tests/             test_health/auth/price_alert_schemas (ohne DB), integration/
 web/                 Frontend: index.html, app.js, config.js, styles.css
 docs/PROJEKTPLAN.md  Referenz: Architektur, Datenmodell, Meilensteine, Risiken
 docs/PLATTFORM-WEB.md  iOS→Web-Wechsel + alle Deltas zum Projektplan
@@ -116,6 +117,15 @@ Statistik), `flight_offers` (konkrete Angebote), `device_tokens` (Push-Ziel),
 - **Nutzer-Zeile per Upsert beim ersten authentifizierten Request**, kein
   Supabase-Webhook: weniger Teile, und auch früher registrierte Nutzer bekommen
   ihre Zeile.
+- **Fremde Ressourcen ergeben 404, nie 403.** Ein 403 verrät, dass es das
+  Objekt gibt. Umgesetzt dadurch, dass `user_id` **in jeder Abfrage** in der
+  WHERE-Klausel steht, statt nachträglich den Besitzer zu prüfen.
+- **PATCH prüft den zusammengeführten Stand**, nicht nur die geschickten
+  Felder (`pruefe_feldkombination` in `schemas/price_alert.py` wird von
+  Create *und* Service benutzt). Ein einzelnes Feld kann für sich gültig sein
+  und trotzdem nicht zum Rest passen.
+- **Alarm-Limit mit `SELECT … FOR UPDATE`** auf die Nutzer-Zeile: sonst
+  könnten zwei gleichzeitige Requests das Kontingent überschreiten.
 
 ## Befehle
 
@@ -139,8 +149,8 @@ DB: `docker compose up -d db`. Kürzel im **Makefile** (`make help`).
   Umgebung hat oft keinen Docker-Daemon, aber Postgres ist per apt installierbar
   (`/usr/lib/postgresql/16/bin`, mit `initdb`/`pg_ctl` als User `postgres`
   starten) — so lässt sich der DB-Pfad echt testen.
-- **Ohne DB:** `pytest` meldet `17 passed, 21 skipped` (Integrationstests
-  überspringen sich selbst). Mit DB: `38 passed`. Beides ist „grün".
+- **Ohne DB:** `pytest` meldet `39 passed, 32 skipped` (Integrationstests
+  überspringen sich selbst). Mit DB: `71 passed`. Beides ist „grün".
 - **Branch:** der in der Session vorgegebene Entwicklungs-Branch (zuletzt
   `claude/project-handoff-continuation-3tzcq4`, davor
   `claude/flight-price-alert-app-8sh4sy`). Dort entwickeln, committen, pushen
