@@ -67,8 +67,10 @@ class Nachricht:
 
     titel: str
     text: str
-    # Wohin der Klick führt. Vorerst die Startseite — die Detailansicht
-    # einzelner Angebote kommt in M9.
+    # Wohin der Klick führt (M9). Der Anker statt eines Pfads, weil die App
+    # eine einzige HTML-Seite ist: Ein Pfad wie `/alarm/<id>` bräuchte einen
+    # Server, der ihn auf `index.html` umschreibt — der Anker funktioniert
+    # auch bei `python -m http.server`.
     url: str = "/"
 
     def als_json(self) -> str:
@@ -190,7 +192,13 @@ def formuliere_nachricht(
     if angebot.validierende_airline:
         teile.append(angebot.validierende_airline)
 
-    return Nachricht(titel=titel, text=f"{kern} {' · '.join(teile)}")
+    return Nachricht(
+        titel=titel,
+        text=f"{kern} {' · '.join(teile)}",
+        # Tippt der Nutzer auf die Nachricht, landet er direkt bei diesem
+        # Alarm — nicht auf einer Liste, in der er ihn erst suchen muss.
+        url=f"/#alarm={alert.id}",
+    )
 
 
 # ---------------------------------------------------------------------------

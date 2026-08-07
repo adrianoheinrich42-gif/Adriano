@@ -7,7 +7,8 @@ Zuerst `CLAUDE.md` lesen, dann diese Datei, dann `git log` / `git status`.
 Meilenstein-Commits (dazwischen liegen reine Doku-Commits):
 
 ```
-M8 — Push-Benachrichtigungen (Web-Push, PWA)        ← neu
+M9 — Ergebnisanzeige: Detailansicht + Deep-Link     ← neu
+46005f3 M8 — Push-Benachrichtigungen (Web-Push, PWA)
 b08b5c4 M4 — Web-Client: Anmeldung, Alarmliste, Formular
 02306d3 M7 — Preisstatistik (+ maxPrice-Verzerrung behoben)
 6f08a1a M6 — Prüflauf: Alarme und Flugsuche verbunden
@@ -21,15 +22,14 @@ def9ae6 M0 — Projektgerüst
 
 ## Wo wir stehen
 
-**M0–M8 fertig — die Kernfunktion ist damit komplett.** Ein Nutzer kann sich
-anmelden, einen Preisalarm anlegen, und das Backend prüft zeitgesteuert bei
-Amadeus, zeichnet den Preisverlauf auf, ordnet Treffer gegen die
-Streckenhistorie ein und **schickt eine Push-Benachrichtigung**.
+**M0–M9 fertig.** Der Nutzer kann sich anmelden, Alarme anlegen, bekommt eine
+Push, wenn ein Preis passt — und sieht nach dem Tippen darauf **direkt die
+Detailansicht** mit Einordnung, Preisverlauf und den gefundenen Flügen.
 
-**Noch 4 Meilensteine: M9–M12.** Alles Komfort und Betrieb, nichts
-Grundlegendes mehr.
+**Noch 3 Meilensteine: M10–M12.** Claude-Texte, Freitext-Eingabe, Deployment.
 
 Endpunkte: `GET /health` · `GET /me` · `POST/GET/PATCH/DELETE /alerts` ·
+`GET /alerts/{id}/offers` · `GET /alerts/{id}/verlauf` · `GET /offers/{id}` ·
 `GET /push/config` · `POST/DELETE /push/subscriptions`.
 Prozesse: API (`app.main:app`) **und** Worker (`app.jobs.worker`).
 
@@ -60,9 +60,48 @@ Keins davon blockiert die Entwicklung, alle drei den echten Betrieb:
 - **M5** — `services/amadeus.py`, `schemas/flight_offer.py`, Fixture.
 - **M6** — `services/pruflauf.py`, `jobs/worker.py` (APScheduler).
 - **M7** — `services/price_stats.py`; Einordnung hängt im `LaufErgebnis`.
-- **M8** — siehe nächster Abschnitt.
+- **M8** — Web-Push: `services/push.py`, `api/routes/push.py`, PWA
+  (`manifest.json`, `sw.js`, `push.js`, Icons), Migration `22e16687014f`.
+- **M9** — siehe nächster Abschnitt.
 
-## Zuletzt geändert — M8 (Push-Benachrichtigungen)
+## Zuletzt geändert — M9 (Ergebnisanzeige)
+
+Die Bewertung aus M7 steckte bis jetzt nur im Log und in der Push-Nachricht.
+Ab hier ist sie sichtbar.
+
+**Backend:** `services/ergebnisse.py` (reines Lesen), `schemas/ergebnis.py`,
+`api/routes/ergebnisse.py` mit drei Endpunkten:
+
+| Endpunkt | Inhalt |
+|---|---|
+| `GET /alerts/{id}/offers` | Funde, günstigste zuerst |
+| `GET /alerts/{id}/verlauf` | Tagespunkte + Einordnung + aktueller Preis |
+| `GET /offers/{id}` | ein einzelnes Angebot |
+
+**Frontend:** `web/detail.js` — Bewertungskarte mit Badge, Preisverlauf als
+selbst gezeichnetes SVG (keine Diagramm-Bibliothek, ~20 Zeilen), Angebotsliste
+mit Hin-/Rückflug, Dauer, Umstiegen und Gepäck. Neue Formatierer in
+`format.js` (`uhrzeitLesbar`, `dauerLesbar`, `tagKurz`).
+
+**Deep-Link:** `Nachricht.url` im Backend baut `/#alarm=<id>`; `app.js` liest
+den Anker, `sw.js` navigiert beim Antippen dorthin. Damit funktioniert auch
+der Zurück-Knopf des Browsers.
+
+### Entscheidungen aus M9
+
+- **Keine Messung wird gegen sich selbst verglichen** — auf zwei Wegen: Der
+  Prüflauf holt die Vergleichspreise, *bevor* er schreibt; die Detailansicht
+  schneidet mit `bis=heute` den laufenden Tag ab.
+- **Die Kurve zeigt heute mit, der Vergleich nicht.** Zwei verschiedene
+  Fragen: „was habe ich beobachtet?" gegen „was ist hier üblich?".
+- **Ein Punkt je Tag**, nicht je Prüflauf — sonst 540 Punkte in 90 Tagen.
+- **Der Anker ist der Ansichtszustand**, kein Router. Ein Pfad `/alarm/<id>`
+  bräuchte einen Server, der ihn umschreibt.
+- **Segmente werden im Backend in Hin- und Rückflug getrennt**, ebenso die
+  Dauern summiert — Leitplanke 1: Der Client rechnet nicht.
+- **`raw_payload` und `offer_hash` verlassen das Backend nicht.**
+
+## Davor geändert — M8 (Push-Benachrichtigungen)
 
 ### Datenmodell
 
@@ -129,8 +168,19 @@ Ausführlich in `CLAUDE.md`; die Merksätze:
 
 ## Verifizierter Zustand (real nachgeprüft, nicht behauptet)
 
-- **Backend-Tests:** mit DB `263 passed`; ohne DB `167 passed, 96 skipped`.
+- **Backend-Tests:** mit DB `283 passed`; ohne DB `167 passed, 116 skipped`.
   `ruff` und `mypy app` (strict) sauber. **Diese Zahlen sind der Soll-Wert.**
+- **M9 im echten Chromium gegen das echte Backend — 12 Schritte:** Liste →
+  Klick auf die Strecke → Detailansicht; Bewertung „199,00 € · Bestpreis";
+  Preisverlauf als SVG mit 13 Tagespunkten; Angebote günstigste zuerst;
+  Ortszeit unverfälscht („09:15 MUC → 11:25 BCN · 2 Std. 10 Min.");
+  Zurück-Knopf **und** Browser-Zurück; Deep-Link `#alarm=<id>`; und die
+  Push-Nachricht baut nachweislich genau diese Adresse. Keine
+  JavaScript-Fehler.
+- **Dabei gefunden und behoben:** Die Detailansicht verglich den aktuellen
+  Preis gegen eine Historie, die dessen **eigene** Beobachtung von heute
+  enthielt — `ist_bestpreis` konnte dort strukturell nie wahr werden. Fix:
+  `hole_vergleichspreise(..., bis=heute_beginn)`.
 - **Migration:** `base → head → base → head` sauber, `alembic check` ohne Drift.
 - **M8 im echten Chromium gegen das echte Backend — 12 Schritte:**
   1. Angemeldet, Alarmansicht erscheint
@@ -174,9 +224,12 @@ Ausführlich in `CLAUDE.md`; die Merksätze:
   Chromium behandelt `new_context()` wie **Inkognito**, und dort fehlt die
   Push-API (crbug.com/401439) → `launch_persistent_context` benutzen. Und ein
   Testalarm braucht `check_interval_minutes >= 15` (DB-CHECK).
-- **Kein Klick-Ziel für die Nachricht.** `sw.js` öffnet nur die Startseite;
-  `Nachricht.url` ist auf `"/"` festgenagelt. Die Detailansicht kommt in M9.
 - **Alarme lassen sich nicht bearbeiten** — nur anlegen, pausieren, löschen.
+  Das Backend kann PATCH auf allen Feldern.
+- **Die Angebotsliste ist auf 20 begrenzt** und hat keine Paginierung.
+- **`booking_url` ist immer leer**, weil Amadeus in der Suchantwort keinen
+  Buchungslink liefert. Der Knopf „Zum Angebot" erscheint deshalb nie. Für
+  echte Buchbarkeit bräuchte es die Flight-Offers-Price-API.
 - **`pushsubscriptionchange` wird nicht aktiv behandelt.** Stattdessen meldet
   `push.js` die Subscription bei jedem Seitenaufruf neu an (Upsert im Backend).
   Reicht, solange die App regelmäßig geöffnet wird.
@@ -217,9 +270,9 @@ Ausführlich in `CLAUDE.md`; die Merksätze:
 
 ## Exakter Arbeitspunkt
 
-M8 abgeschlossen, committet und gepusht. Nichts ist halbfertig.
+M9 abgeschlossen, committet und gepusht. Nichts ist halbfertig.
 
-## Nächste Schritte — Empfehlung: M12 (Deployment) vor M9
+## Nächste Schritte — Empfehlung: M12 (Deployment)
 
 Der Grund ist Punkt 1 der offenen Punkte: **Push ist auf dem iPhone
 ungetestet**, und ohne HTTPS bleibt das so. Die Kernfunktion ist fertig — sie
@@ -235,9 +288,9 @@ Kleinster Weg dahin:
 4. Auf dem iPhone „Zum Home-Bildschirm hinzufügen", Benachrichtigungen
    einschalten, Alarm mit hohem Limit anlegen → es sollte klingeln.
 
-**Alternative, wenn du lieber im Vertrauten bleibst: M9 (Detailansicht).**
-`GET /offers/{id}`, Preisverlauf pro Alarm, und die `Preisbewertung` aus M7
-endlich sichtbar machen — sie steckt bisher nur im Log und in der Push.
-Dann auch `Nachricht.url` auf die Detailansicht zeigen lassen statt auf `/`.
+**Alternative: M10 (Claude-Texte).** Der deterministische Satz-Baukasten in
+`formuliere_nachricht()` bleibt der Rückfall; Claude formuliert denselben
+Inhalt nur schöner. Braucht einen `ANTHROPIC_API_KEY`. Wichtig dabei:
+Scheitert der Aufruf, muss die Push trotzdem rausgehen — Leitplanke 3.
 
-Danach: M10 (Claude-Texte), M11 (Freitext-Eingabe).
+Danach: M11 (Freitext-Eingabe).

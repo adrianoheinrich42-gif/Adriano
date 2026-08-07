@@ -186,6 +186,7 @@ async def hole_vergleichspreise(
     departure_month: str,
     jetzt: datetime,
     fenster_tage: int = VERGLEICHSFENSTER_TAGE,
+    bis: datetime | None = None,
 ) -> list[int]:
     """Die beobachteten Tiefstpreise derselben Strecke im selben Reisemonat.
 
@@ -201,17 +202,29 @@ async def hole_vergleichspreise(
       nichts" zu lesen.
     * `min_price_cents IS NULL` — an dem Tag wurde nichts gefunden. Das ist
       kein Preis und darf den Median nicht verschieben.
+
+    **`bis` schneidet die jüngsten Beobachtungen ab.** Das braucht die
+    Detailansicht (M9): Sie ordnet einen Preis ein, der *gerade eben*
+    beobachtet wurde — läge diese Beobachtung im Vergleichsmaterial, vergliche
+    sich der Preis gegen sich selbst. `ist_bestpreis` wäre dann nie wahr, weil
+    das Minimum immer schon der eigene Preis ist.
+
+    Der Prüflauf braucht `bis` nicht: Er holt die Vergleichspreise, *bevor* er
+    seine eigene Beobachtung schreibt. Zwei Wege zum selben Grundsatz — eine
+    Messung wird nie gegen sich selbst gehalten.
     """
-    result = await session.execute(
-        select(FlightObservation.min_price_cents).where(
-            FlightObservation.origin == origin,
-            FlightObservation.destination == destination,
-            FlightObservation.departure_month == departure_month,
-            FlightObservation.search_ok.is_(True),
-            FlightObservation.min_price_cents.is_not(None),
-            FlightObservation.observed_at >= jetzt - timedelta(days=fenster_tage),
-        )
-    )
+    bedingungen = [
+        FlightObservation.origin == origin,
+        FlightObservation.destination == destination,
+        FlightObservation.departure_month == departure_month,
+        FlightObservation.search_ok.is_(True),
+        FlightObservation.min_price_cents.is_not(None),
+        FlightObservation.observed_at >= jetzt - timedelta(days=fenster_tage),
+    ]
+    if bis is not None:
+        bedingungen.append(FlightObservation.observed_at < bis)
+
+    result = await session.execute(select(FlightObservation.min_price_cents).where(*bedingungen))
     # `is_not(None)` oben garantiert, dass hier kein None mehr ankommt; mypy
     # weiß das nicht, deshalb die ausdrückliche Prüfung.
     return [preis for preis in result.scalars().all() if preis is not None]

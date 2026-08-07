@@ -59,14 +59,16 @@ backend/app/
   config.py          Settings aus ENV (DB-URL, CORS, Pooler-Schalter, Supabase)
   db.py              async Engine/Session, is_database_reachable()
   api/deps.py        get_token_claims (ohne DB) + get_current_user / CurrentUser
-  api/routes/        health.py, auth.py (GET /me), price_alerts.py (CRUD /alerts)
+  api/routes/        health.py, auth.py (GET /me), price_alerts.py (CRUD /alerts),
+                     push.py (M8), ergebnisse.py (M9: /offers, /verlauf)
   core/security.py   JWT-Prüfung der Supabase-Token (HS256)
   models/            6 SQLAlchemy-Tabellen (+ mixins.py, __init__ importiert alle)
   schemas/           price_alert.py (API-Ein/Ausgabe), flight_offer.py (intern)
   services/          users.py, price_alerts.py, amadeus.py (Client + Normalisierung),
                      pruflauf.py (M6: reine Funktionen + Orchestrierung),
                      price_stats.py (M7: Median/Abweichung + Vergleichsabfrage),
-                     push.py (M8: Textbaukasten, Bremsen, Web-Push-Versand)
+                     push.py (M8: Textbaukasten, Bremsen, Web-Push-Versand),
+                     ergebnisse.py (M9: Angebote + Preisverlauf lesen)
   jobs/worker.py     M6: APScheduler-Prozess, ruft den Prüflauf im Takt auf
   alembic/           env.py (async, URL aus config), versions/ (2 Migrationen)
 backend/scripts/     amadeus_suche.py — Handsuche, vapid_schluessel.py (M8)
@@ -76,7 +78,8 @@ backend/tests/       *.py ohne DB/Netz, integration/ mit DB, fixtures/ gespeiche
 web/                 Frontend (M4): index.html, app.js (Ansichten), api.js (nur
                      hier fetch aufs Backend), auth.js (Supabase-Anmeldung),
                      format.js (Cent↔Euro, Datum), config.js, styles.css,
-                     push.js + sw.js + manifest.json + icons/ (M8: PWA & Push)
+                     push.js + sw.js + manifest.json + icons/ (M8: PWA & Push),
+                     detail.js (M9: Einordnung, SVG-Verlauf, Angebote)
 docs/SUPABASE-EINRICHTEN.md  Anleitung ohne Vorwissen (Nutzer-Aktion)
 docs/PROJEKTPLAN.md  Referenz: Architektur, Datenmodell, Meilensteine, Risiken
 docs/PLATTFORM-WEB.md  iOS→Web-Wechsel + alle Deltas zum Projektplan
@@ -219,6 +222,18 @@ Statistik), `flight_offers` (konkrete Angebote), `device_tokens` (Push-Ziel),
 - **Der Client leitet „Push ist an" NICHT aus `Notification.permission` ab**,
   sondern aus einem tatsächlich vorhandenen Abonnement. Beides fällt
   auseinander (abgemeldet, zweites Gerät, Browserdaten gelöscht).
+- **Keine Messung wird gegen sich selbst verglichen** — auf zwei Wegen: Der
+  Prüflauf holt die Vergleichspreise, *bevor* er seine Beobachtung schreibt;
+  die Detailansicht schneidet mit `hole_vergleichspreise(..., bis=heute)` den
+  laufenden Tag ab. Ohne das wäre `ist_bestpreis` in der Detailansicht nie
+  wahr, weil das Minimum immer schon der eigene Preis ist.
+- **Die Verlaufskurve zeigt heute mit, der Vergleich nicht.** Die Kurve
+  erzählt die eigene Geschichte („was habe ich beobachtet?"), die Bewertung
+  fragt „was ist hier üblich?" — zwei verschiedene Fragen.
+- **Der Anker (`#alarm=<id>`) ist der Ansichtszustand des Clients.** Damit
+  funktionieren Browser-Zurück und der Deep-Link aus der Push ohne Router.
+  Ein Pfad wie `/alarm/<id>` bräuchte einen Server, der ihn auf `index.html`
+  umschreibt — der Anker läuft auch unter `python -m http.server`.
 - **`navigator.serviceWorker.ready` abwarten, nicht nur `register()`.**
   `register()` kehrt zurück, solange der Worker noch „installing" ist —
   `subscribe()` scheitert dann beim **ersten** Besuch mit „no active Service
@@ -261,8 +276,8 @@ DB: `docker compose up -d db`. Kürzel im **Makefile** (`make help`).
   Umgebung hat oft keinen Docker-Daemon, aber Postgres ist per apt installierbar
   (`/usr/lib/postgresql/16/bin`, mit `initdb`/`pg_ctl` als User `postgres`
   starten) — so lässt sich der DB-Pfad echt testen.
-- **Ohne DB:** `pytest` meldet `167 passed, 96 skipped` (Integrationstests
-  überspringen sich selbst). Mit DB: `263 passed`. Beides ist „grün".
+- **Ohne DB:** `pytest` meldet `167 passed, 116 skipped` (Integrationstests
+  überspringen sich selbst). Mit DB: `283 passed`. Beides ist „grün".
 - **Frontend prüfen geht wirklich:** Chromium und Playwright sind vorhanden
   (`/opt/pw-browsers`, `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`, kein
   `playwright install`). Supabase lässt sich per `page.route("**/auth/v1/**")`

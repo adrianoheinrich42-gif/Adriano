@@ -78,8 +78,20 @@ self.addEventListener("notificationclick", (ereignis) => {
 
       // Ist die App schon offen, diesen Tab nach vorn holen — statt einen
       // zweiten aufzumachen. Nichts ist lästiger als zehn Tabs derselben App.
+      //
+      // Vorher aber **hinnavigieren**: Der Nutzer hat auf eine Nachricht über
+      // einen bestimmten Alarm getippt und erwartet genau den, nicht die
+      // Liste, die zufällig gerade offen war (M9, Deep-Link).
       for (const client of fenster) {
         if ("focus" in client) {
+          if ("navigate" in client) {
+            try {
+              await client.navigate(ziel);
+            } catch {
+              // `navigate` scheitert, wenn der Tab gerade lädt. Dann ist ein
+              // fokussiertes Fenster immer noch besser als gar keins.
+            }
+          }
           await client.focus();
           return;
         }

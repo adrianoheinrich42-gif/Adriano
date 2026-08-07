@@ -159,6 +159,32 @@ async def test_zu_alte_beobachtungen_zaehlen_nicht(db_session: AsyncSession, ala
     assert preise == [20000]
 
 
+async def test_bis_schneidet_die_juengsten_beobachtungen_ab(
+    db_session: AsyncSession, alarm: PriceAlert
+):
+    """Für die Detailansicht (M9): Sie ordnet einen gerade beobachteten Preis
+    ein — läge dessen eigene Beobachtung im Vergleichsmaterial, verglichen
+    sich die Zahlen gegen sich selbst und `ist_bestpreis` wäre nie wahr."""
+    await lege_beobachtung_an(db_session, alarm, 20000, observed_at=JETZT - timedelta(days=1))
+    await lege_beobachtung_an(db_session, alarm, 15000, observed_at=JETZT)
+
+    preise = await hole_vergleichspreise(
+        db_session, alarm.origin, alarm.destination, MONAT, JETZT, bis=JETZT
+    )
+
+    assert preise == [20000]
+
+
+async def test_ohne_bis_zaehlt_alles_bis_jetzt(db_session: AsyncSession, alarm: PriceAlert):
+    """Der Prüflauf braucht `bis` nicht — er fragt, bevor er selbst schreibt."""
+    await lege_beobachtung_an(db_session, alarm, 20000, observed_at=JETZT - timedelta(days=1))
+    await lege_beobachtung_an(db_session, alarm, 15000, observed_at=JETZT)
+
+    preise = await hole_vergleichspreise(db_session, alarm.origin, alarm.destination, MONAT, JETZT)
+
+    assert sorted(preise) == [15000, 20000]
+
+
 async def test_beobachtungen_anderer_nutzer_zaehlen_mit(
     db_session: AsyncSession, alarm: PriceAlert
 ):

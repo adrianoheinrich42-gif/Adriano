@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import auth, health, price_alerts, push
+from app.api.routes import auth, ergebnisse, health, price_alerts, push
 from app.config import get_settings
 from app.db import engine
 
@@ -52,6 +52,8 @@ def create_app() -> FastAPI:
     app.include_router(health.router)
     app.include_router(auth.router)
     app.include_router(price_alerts.router)
+    app.include_router(ergebnisse.alarm_router)
+    app.include_router(ergebnisse.angebot_router)
     app.include_router(push.router)
 
     return app

@@ -83,6 +83,35 @@ export function strecke(alarm) {
   return `${alarm.origin} → ${alarm.destination}`;
 }
 
+/**
+ * „2026-09-06T09:15:00+00:00" → „09:15"
+ *
+ * **Ohne Zeitzonenumrechnung.** Diese Zeiten sind Flughafen-Ortszeiten, die
+ * das Backend als UTC ablegt (siehe `ortszeit_als_utc` im Prüflauf). „09:15 ab
+ * München" soll als 09:15 erscheinen — `toLocaleTimeString()` würde daraus in
+ * Deutschland 11:15 machen, also die falsche Zeit.
+ */
+export function uhrzeitLesbar(isoZeitpunkt) {
+  if (!isoZeitpunkt) return "–";
+  return isoZeitpunkt.slice(11, 16);
+}
+
+/** „2026-09-06T09:15:00+00:00" → „6. Sep." (kurz, für Flugzeilen) */
+export function tagKurz(isoZeitpunkt) {
+  if (!isoZeitpunkt) return "–";
+  return datumLesbar(isoZeitpunkt.slice(0, 10)).replace(/ \d{4}$/, "");
+}
+
+/** 130 → „2 Std. 10 Min." */
+export function dauerLesbar(minuten) {
+  if (minuten === null || minuten === undefined) return "–";
+  const stunden = Math.floor(minuten / 60);
+  const rest = minuten % 60;
+  if (stunden === 0) return `${rest} Min.`;
+  if (rest === 0) return `${stunden} Std.`;
+  return `${stunden} Std. ${rest} Min.`;
+}
+
 /** „1 Umstieg" / „direkt" / „bis 2 Umstiege" */
 export function umstiegeLesbar(maxStops) {
   if (maxStops === 0) return "nur Direktflug";

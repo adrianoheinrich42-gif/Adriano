@@ -289,6 +289,115 @@ summary {
   color: var(--grau);
 }
 
+/* --- Detailansicht (M9) --------------------------------------------------- */
+
+.zurueck {
+  margin: 0 0 0.75rem;
+  padding-left: 0;
+}
+
+.abschnitt {
+  font-size: 1rem;
+  margin: 1.5rem 0 0.75rem;
+}
+
+/* Die Strecke in der Liste ist ein Knopf — sieht aber aus wie eine
+   Überschrift. */
+.alarm__oeffnen {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.alarm__oeffnen:hover,
+.alarm__oeffnen:focus-visible {
+  color: var(--blau);
+  text-decoration: underline;
+}
+
+.bewertung__preis {
+  font-size: 1.6rem;
+  font-weight: 600;
+  margin-right: 0.6rem;
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  vertical-align: middle;
+  color: #fff;
+  background: var(--grau);
+}
+
+.badge--gut {
+  background: var(--gruen);
+}
+
+.badge--warn {
+  background: var(--orange);
+}
+
+.badge--neutral {
+  background: var(--grau);
+}
+
+.verlauf {
+  margin: 1.25rem 0 0;
+}
+
+.verlauf svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.verlauf__linie {
+  fill: none;
+  stroke: var(--blau);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.verlauf__flaeche {
+  fill: var(--blau);
+  opacity: 0.12;
+  stroke: none;
+}
+
+.verlauf__marke {
+  fill: var(--gruen);
+}
+
+.verlauf__achse {
+  margin-top: 0.25rem;
+}
+
+.angebot__kopf {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.angebot__preis {
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+.angebot__flug {
+  margin: 0.25rem 0;
+  font-size: 0.9rem;
+}
+
 /* --- Benachrichtigungs-Karte --------------------------------------------- */
 
 .push {

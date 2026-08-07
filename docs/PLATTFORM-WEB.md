@@ -161,5 +161,12 @@ der niemals in den Browser gehört. Ausführlich kommentiert in `web/auth.js`.
   Im echten Chromium geprüft (12 Schritte) — inklusive echter Verschlüsselung
   und VAPID-Signatur. **Offen: Test auf echter iPhone-Hardware**, dafür fehlt
   HTTPS.
+- **M9** — Detailansicht statt SwiftUI-Ergebnisliste, wie in der
+  Meilenstein-Tabelle oben geplant. Der „Deep-Link aus der Benachrichtigung"
+  ist ein **Anker** (`/#alarm=<id>`) statt eines Pfads: Eine reine
+  HTML-Auslieferung ohne Server-Umschreibung kann `/alarm/<id>` nicht
+  auflösen, ein Anker dagegen schon. Der Preisverlauf ist selbst gezeichnetes
+  SVG — eine Diagramm-Bibliothek wäre die erste externe Abhängigkeit im
+  Frontend gewesen.
 - Der alte `ios/`-Ordner wurde entfernt; er liegt weiterhin in der
   Git-Historie (Commit `def9ae6`), falls je ein Blick nötig ist.

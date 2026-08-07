@@ -10,6 +10,7 @@
 // `services/price_stats.py`, nicht diese Datei.
 
 import { Api, ApiFehler, SitzungAbgelaufen } from "./api.js";
+import { zeigeDetail } from "./detail.js";
 import {
   AnmeldeFehler,
   angemeldeteEmail,
@@ -44,8 +45,14 @@ function zeigeAnsicht(name) {
   $("ansichtLaden").hidden = name !== "laden";
   $("ansichtAnmeldung").hidden = name !== "anmeldung";
   $("ansichtAlarme").hidden = name !== "alarme";
-  $("kopf").hidden = name !== "alarme";
+  $("ansichtDetail").hidden = name !== "detail";
+  // Die Kopfzeile gehört zu jeder angemeldeten Ansicht.
+  $("kopf").hidden = name === "anmeldung" || name === "laden";
 }
+
+// Die zuletzt geladenen Alarme — die Detailansicht braucht die Zeile, und ein
+// zweiter Abruf nur für Strecke und Limit wäre verschwendet.
+let geladeneAlarme = [];
 
 function zeigeFehler(element, text) {
   element.textContent = text;
@@ -156,7 +163,67 @@ async function beiRegistrieren() {
 
 async function beiAbmelden() {
   await melde_ab();
+  setzeAnker("");
   zeigeAnmeldung();
+}
+
+// --- Detailansicht (M9) -----------------------------------------------------
+
+/**
+ * Der Anker in der Adresszeile ist der Zustand der Ansicht.
+ *
+ * `#alarm=<id>` heißt Detailansicht, alles andere Liste. Zwei Dinge fallen
+ * dadurch von selbst ab: Der Zurück-Knopf des Browsers funktioniert, und der
+ * **Deep-Link aus der Push-Benachrichtigung** landet direkt beim richtigen
+ * Alarm (`Nachricht.url` in `services/push.py` baut genau diese Adresse).
+ */
+function angezeigterAlarm() {
+  const treffer = location.hash.match(/^#alarm=([0-9a-f-]{36})$/i);
+  return treffer ? treffer[1] : null;
+}
+
+function setzeAnker(wert) {
+  // `replaceState` statt `location.hash =`: Das löst kein `hashchange` aus und
+  // legt keinen zusätzlichen Eintrag in der Verlaufsliste an.
+  history.replaceState(null, "", wert || location.pathname);
+}
+
+async function oeffneDetail(alarm) {
+  location.hash = `alarm=${alarm.id}`;
+}
+
+async function zeichneDetailAnsicht(alarmId) {
+  const alarm = geladeneAlarme.find((a) => a.id === alarmId);
+  if (!alarm) {
+    // Deep-Link auf einen Alarm, den es nicht (mehr) gibt, oder direkt
+    // aufgerufen, bevor die Liste geladen war.
+    setzeAnker("");
+    await zeigeAlarme();
+    return;
+  }
+
+  zeigeAnsicht("detail");
+  await zeigeDetail(alarm, (fehler) => behandle(fehler, $("detailFehler")));
+}
+
+async function beiAnkerwechsel() {
+  if (!istAngemeldet()) return;
+
+  const alarmId = angezeigterAlarm();
+  if (alarmId) {
+    // Beim Direkteinstieg über den Deep-Link ist die Liste noch leer.
+    if (geladeneAlarme.length === 0) {
+      try {
+        geladeneAlarme = await Api.alarme();
+      } catch (fehler) {
+        behandle(fehler, $("detailFehler"));
+        return;
+      }
+    }
+    await zeichneDetailAnsicht(alarmId);
+  } else {
+    await zeigeAlarme();
+  }
 }
 
 // --- Benachrichtigungen -----------------------------------------------------
@@ -258,6 +325,7 @@ async function zeigeAlarme() {
 
   try {
     const alarme = await Api.alarme();
+    geladeneAlarme = alarme;
     zeichneListe(alarme);
   } catch (fehler) {
     $("listeLaedt").hidden = true;
@@ -292,8 +360,15 @@ function zeichneAlarm(alarm) {
   // `textContent` statt `innerHTML`: Alles hier kommt zwar aus dem eigenen
   // Backend, aber HTML aus Daten zusammenzukleben ist die Gewohnheit, aus der
   // später Sicherheitslücken werden.
+  // Die Strecke ist der Knopf in die Detailansicht — ein <button>, kein
+  // klickbares <div>: So erreicht man ihn auch mit der Tastatur.
   const titel = document.createElement("h2");
-  titel.textContent = strecke(alarm);
+  const oeffnen = document.createElement("button");
+  oeffnen.type = "button";
+  oeffnen.className = "alarm__oeffnen";
+  oeffnen.textContent = strecke(alarm);
+  oeffnen.addEventListener("click", () => oeffneDetail(alarm));
+  titel.append(oeffnen);
 
   const preis = document.createElement("span");
   preis.className = "alarm__preis";
@@ -438,8 +513,16 @@ function verdrahte() {
   $("abmeldenKnopf").addEventListener("click", beiAbmelden);
   $("neuKnopf").addEventListener("click", oeffneDialog);
   $("pushKnopf").addEventListener("click", beiPushKnopf);
+  $("zurueckKnopf").addEventListener("click", () => setzeAnkerUndZurueck());
+  window.addEventListener("hashchange", beiAnkerwechsel);
   $("alarmFormular").addEventListener("submit", beiSpeichern);
   $("abbrechenKnopf").addEventListener("click", () => $("alarmDialog").close());
+}
+
+function setzeAnkerUndZurueck() {
+  // Über den Anker zurück, nicht direkt: Dann läuft es durch dieselbe
+  // Umschaltlogik wie der Browser-Zurück-Knopf.
+  location.hash = "";
 }
 
 async function start() {
@@ -448,11 +531,14 @@ async function start() {
   // Beim Laden entscheidet allein, ob eine Sitzung im Browser liegt. Ob sie
   // noch gültig ist, zeigt der erste Aufruf — läuft das Token ab, landet der
   // Nutzer über `SitzungAbgelaufen` von selbst wieder bei der Anmeldung.
-  if (istAngemeldet()) {
-    await zeigeAlarme();
-  } else {
+  if (!istAngemeldet()) {
     zeigeAnmeldung();
+    return;
   }
+
+  await zeigeAlarme();
+  // Kommt der Nutzer über eine Benachrichtigung, steht der Alarm im Anker.
+  if (angezeigterAlarm()) await beiAnkerwechsel();
 }
 
 start();

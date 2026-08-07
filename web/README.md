@@ -1,4 +1,4 @@
-# Web-Frontend (M4 + M8)
+# Web-Frontend (M4 + M8 + M9)
 
 Die Web-App: anmelden, Preisalarme ansehen, anlegen, pausieren und löschen —
 und Push-Benachrichtigungen empfangen, wenn ein Preis passt.
@@ -51,6 +51,7 @@ Dann im Browser öffnen: <http://localhost:3000>
 | `api.js` | Alle Aufrufe ans eigene Backend; macht aus Statuscodes deutsche Sätze |
 | `format.js` | Geld (Cent ↔ Euro), Datum, „vor 5 Minuten" |
 | `app.js` | Ansichten umschalten und die Liste zeichnen |
+| `detail.js` | Detailansicht: Einordnung, Preisverlauf, Angebote |
 | `push.js` | Benachrichtigungen ein- und ausschalten |
 | `sw.js` | Service Worker — läuft, wenn die App geschlossen ist |
 | `manifest.json`, `icons/` | Macht die Seite installierbar |

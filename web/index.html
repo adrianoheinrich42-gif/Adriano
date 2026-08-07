@@ -105,6 +105,46 @@
 
         <ul id="alarmListe" class="liste" hidden></ul>
       </section>
+
+      <!-- ── Detailansicht eines Alarms (M9) ──────────────────────────── -->
+      <section id="ansichtDetail" hidden>
+        <button class="btn btn--schlicht zurueck" id="zurueckKnopf" type="button">
+          ← Alle Alarme
+        </button>
+
+        <h1 id="detailTitel">–</h1>
+        <p id="detailZeitraum" class="hinweis"></p>
+
+        <p id="detailFehler" class="fehler" role="alert" hidden></p>
+
+        <div id="detailLaedt" class="karte karte--mittig">
+          <div class="spinner" aria-hidden="true"></div>
+          <p>Ergebnisse werden geladen …</p>
+        </div>
+
+        <!-- Die Einordnung aus M7 — bis M9 steckte sie nur im Log. -->
+        <div id="bewertungKarte" class="karte" hidden>
+          <div class="bewertung">
+            <div>
+              <span id="bewertungPreis" class="bewertung__preis">–</span>
+              <span id="bewertungBadge" class="badge">–</span>
+            </div>
+            <p id="bewertungText" class="hinweis"></p>
+          </div>
+          <figure id="verlaufFigur" class="verlauf" hidden>
+            <figcaption class="fussnote">Günstigster beobachteter Preis pro Tag</figcaption>
+            <div id="verlaufBild"></div>
+          </figure>
+        </div>
+
+        <h2 class="abschnitt">Gefundene Angebote</h2>
+        <div id="angeboteLeer" class="karte karte--mittig" hidden>
+          <p class="hinweis">
+            Noch nichts unter deinem Limit. Der nächste Prüflauf sieht wieder nach.
+          </p>
+        </div>
+        <ul id="angebotListe" class="liste" hidden></ul>
+      </section>
     </main>
 
     <!-- ── Formular für einen neuen Alarm ─────────────────────────────── -->
