@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  App Transport Security erlaubt normalerweise nur HTTPS.
+	  Für die lokale Entwicklung gegen http://127.0.0.1:8000 brauchen wir
+	  diese Ausnahme. Sie gilt nur für lokale Adressen, nicht für das Internet.
+
+	  VOR DEM DEPLOYMENT (M12): Das Backend läuft dann unter HTTPS —
+	  diesen Block ersatzlos löschen.
+	-->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+</dict>
+</plist>

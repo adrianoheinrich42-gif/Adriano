@@ -1,0 +1,47 @@
+# Lokale Entwicklungsumgebung.
+#
+#   docker compose up -d db     → nur Postgres (empfohlen für den Alltag,
+#                                 API dann per `uv run uvicorn ...` mit Reload)
+#   docker compose up           → Postgres + API im Container
+#
+# In Produktion läuft die Datenbank bei Supabase, nicht hier.
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: flugalarm-db
+    environment:
+      POSTGRES_USER: flugalarm
+      POSTGRES_PASSWORD: flugalarm
+      POSTGRES_DB: flugalarm
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      # Die API startet erst, wenn Postgres wirklich Anfragen annimmt.
+      test: ["CMD-SHELL", "pg_isready -U flugalarm -d flugalarm"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: ./backend
+    container_name: flugalarm-api
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Im Container heißt der Datenbank-Host "db", nicht "localhost".
+      DATABASE_URL: postgresql+asyncpg://flugalarm:flugalarm@db:5432/flugalarm
+      ENVIRONMENT: local
+    ports:
+      - "8000:8000"
+    volumes:
+      # Code-Änderungen ohne Neubau sichtbar machen.
+      - ./backend/app:/app/app
+    command:
+      ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
+volumes:
+  postgres_data:
