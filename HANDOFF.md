@@ -5,7 +5,7 @@ Arbeitsverzeichnis **sauber**, alles committet und **gepusht**.
 Zuerst `CLAUDE.md` lesen, dann diese Datei, dann `git log` / `git status`.
 
 ```
-<neu>   M5 — Amadeus-Anbindung
+db30665 M5 — Amadeus-Anbindung
 7fa7c6f docs: Handoff für die nächste Session
 68a2125 M3 — CRUD für Preisalarme
 9a5aefa M2 — Auth-Kette mit Supabase-JWT
