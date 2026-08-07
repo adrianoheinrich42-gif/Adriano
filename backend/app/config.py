@@ -57,6 +57,17 @@ class Settings(BaseSettings):
     # Lieber früh abbrechen als den Prüflauf blockieren.
     amadeus_timeout_seconds: float = 15.0
 
+    # --- Prüflauf / Worker (M6) ------------------------------------------
+    # Wie oft der Worker **nachsieht**, welche Alarme fällig sind. Nicht zu
+    # verwechseln mit `check_interval_minutes` am einzelnen Alarm — das
+    # bestimmt, wie oft ein Alarm tatsächlich geprüft wird. Nachsehen kostet
+    # nur eine schlanke SQL-Abfrage, darum darf der Takt kurz sein.
+    pruflauf_intervall_minuten: int = 5
+
+    # Obergrenze pro Durchgang. Schützt das knappe Amadeus-Kontingent, wenn
+    # nach einem längeren Ausfall alle Alarme gleichzeitig fällig sind.
+    pruflauf_max_alarme_pro_lauf: int = 20
+
     # --- CORS ------------------------------------------------------------
     # Für die iOS-App irrelevant (native Apps kennen keine CORS-Regel),
     # aber nützlich, falls du das Backend im Browser testest.

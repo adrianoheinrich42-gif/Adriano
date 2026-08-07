@@ -51,20 +51,37 @@ app/
 ├── main.py                 # FastAPI-App, Router einhängen
 ├── config.py               # Einstellungen aus Umgebungsvariablen
 ├── db.py                   # Engine, Session, Verbindungsprüfung
-├── api/routes/health.py    # GET /health
+├── api/deps.py             # get_current_user (M2)
+├── api/routes/             # health.py, auth.py, price_alerts.py
+├── core/security.py        # JWT-Prüfung der Supabase-Token (M2)
 ├── models/                 # die sechs Tabellen (M1)
-├── core/                   # (leer) Security, Rate Limiting  → ab M2
-├── schemas/                # (leer) Pydantic-Schemata        → ab M3
-├── services/               # (leer) Fachlogik                → ab M5
-└── jobs/                   # (leer) Scheduler                → ab M6
+├── schemas/                # Pydantic-Schemata (M3, M5)
+├── services/               # Fachlogik: users, price_alerts, amadeus, pruflauf
+└── jobs/worker.py          # der zeitgesteuerte Prüflauf (M6)
 alembic/versions/           # Migrationen (chronologisch benannt)
 tests/
-├── test_health.py          # ohne Datenbank
+├── test_*.py               # ohne Datenbank und ohne Netz
+├── attrappen.py            # Doppelgänger der Flugsuche + Baukästen
+├── fixtures/               # gespeicherte Amadeus-Antwort (README dort lesen!)
 └── integration/            # mit Datenbank; werden ohne sie übersprungen
 ```
 
-Die leeren Pakete sind Absicht: Sie zeigen, wohin was gehört. Die vollständige
-Begründung der Struktur steht in `docs/PROJEKTPLAN.md`, Abschnitt 6.1.
+Die vollständige Begründung der Struktur steht in `docs/PROJEKTPLAN.md`,
+Abschnitt 6.1.
+
+## Die zwei Prozesse
+
+Die API beantwortet Anfragen, der Worker arbeitet im Zeittakt. Sie teilen sich
+nur die Datenbank und werden getrennt gestartet:
+
+```bash
+uv run uvicorn app.main:app --reload   # API    → http://127.0.0.1:8000
+uv run python -m app.jobs.worker       # Worker → prüft fällige Alarme
+```
+
+Der Worker läuft auch ohne Amadeus-Zugangsdaten an; die Suche scheitert dann
+pro Alarm mit einer verständlichen Meldung im Log, statt den Prozess zu
+beenden.
 
 ## Migrationen
 

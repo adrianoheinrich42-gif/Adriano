@@ -43,5 +43,29 @@ services:
     command:
       ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
 
+  # Zweiter Prozess, gleiches Image, gleiche Datenbank — nur ein anderer
+  # Startbefehl. Getrennt, damit ein langsamer Prüflauf die API nicht
+  # blockiert und ein API-Neustart den Prüflauf nicht mitreißt.
+  #
+  # Achtung: genau EINE Instanz. Zwei Worker würden dieselben Alarme doppelt
+  # abfragen — dagegen bräuchte es `FOR UPDATE SKIP LOCKED` in
+  # `finde_faellige_alarme`. Siehe CLAUDE.md, „Wichtige Entscheidungen".
+  worker:
+    build: ./backend
+    container_name: flugalarm-worker
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://flugalarm:flugalarm@db:5432/flugalarm
+      ENVIRONMENT: local
+      # Ohne Amadeus-Zugangsdaten läuft der Worker an und meldet den fehlenden
+      # Zugang pro Alarm im Log, statt sich zu beenden.
+      AMADEUS_CLIENT_ID: ${AMADEUS_CLIENT_ID:-}
+      AMADEUS_CLIENT_SECRET: ${AMADEUS_CLIENT_SECRET:-}
+    volumes:
+      - ./backend/app:/app/app
+    command: ["python", "-m", "app.jobs.worker"]
+
 volumes:
   postgres_data:

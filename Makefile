@@ -1,5 +1,5 @@
-.PHONY: help install db-up db-down dev web test lint fmt check up down clean \
-        migrate migrate-down migration migration-check db-shell
+.PHONY: help install db-up db-down dev worker web test lint fmt check up down clean \
+        migrate migrate-down migration migration-check db-shell suche
 
 help:  ## Zeigt diese Hilfe
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -31,6 +31,9 @@ migration-check:  ## Weichen Modelle und Datenbank voneinander ab?
 
 dev:  ## API lokal mit Auto-Reload starten (Postgres muss laufen)
 	cd backend && uv run uvicorn app.main:app --reload --port 8000
+
+worker:  ## Prüflauf-Worker starten (zweiter Prozess neben der API)
+	cd backend && uv run python -m app.jobs.worker
 
 web:  ## Web-Frontend ausliefern (http://localhost:3000)
 	cd web && python3 -m http.server 3000

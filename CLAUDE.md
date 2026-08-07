@@ -63,12 +63,14 @@ backend/app/
   core/security.py   JWT-Prüfung der Supabase-Token (HS256)
   models/            6 SQLAlchemy-Tabellen (+ mixins.py, __init__ importiert alle)
   schemas/           price_alert.py (API-Ein/Ausgabe), flight_offer.py (intern)
-  services/          users.py, price_alerts.py, amadeus.py (Client + Normalisierung)
-  jobs/              leer, Zielort für M6 (siehe backend/README)
+  services/          users.py, price_alerts.py, amadeus.py (Client + Normalisierung),
+                     pruflauf.py (M6: reine Funktionen + Orchestrierung)
+  jobs/worker.py     M6: APScheduler-Prozess, ruft den Prüflauf im Takt auf
   alembic/           env.py (async, URL aus config), versions/ (1 Migration)
 backend/scripts/     amadeus_suche.py — Handsuche (uv run python -m scripts.…)
 backend/tests/       *.py ohne DB/Netz, integration/ mit DB, fixtures/ gespeicherte
-                     Amadeus-Antwort (Herkunft: fixtures/README.md lesen!)
+                     Amadeus-Antwort (Herkunft: fixtures/README.md lesen!),
+                     attrappen.py (Doppelgänger der Flugsuche + Baukästen)
 web/                 Frontend: index.html, app.js, config.js, styles.css
 docs/PROJEKTPLAN.md  Referenz: Architektur, Datenmodell, Meilensteine, Risiken
 docs/PLATTFORM-WEB.md  iOS→Web-Wechsel + alle Deltas zum Projektplan
@@ -134,8 +136,29 @@ Statistik), `flight_offers` (konkrete Angebote), `device_tokens` (Push-Ziel),
   (`httpx.MockTransport`).
 - **Amadeus-Zeiten sind lokale Flughafenzeiten ohne Offset** und werden genau
   so weitergereicht, statt eine Zeitzone zu erfinden. Für echte Zeitpunkte
-  gibt es `dauer_minuten`. **Offen für M6:** `flight_offers` hat `timestamptz`
-  — dort muss entschieden werden, wie umgerechnet wird.
+  gibt es `dauer_minuten`.
+- **Ortszeit wird als UTC gespeichert, nicht umgerechnet** (`ortszeit_als_utc`
+  in `services/pruflauf.py`, M6). Die Wanduhrzeit stimmt damit in der Anzeige
+  („09:15 ab München"), der **Zeitpunkt ist aber falsch**. Zwei solche Zeiten
+  darf man deshalb nie voneinander abziehen — Dauern kommen aus
+  `dauer_minuten`. Alternative wäre eine Flughafen-Zeitzonentabelle (~5000
+  Einträge mit jährlich wechselnden Sommerzeitregeln); dafür ist es zu früh.
+  Nebenwirkung: Flüge über die Datumsgrenze nach Osten (Ankunfts-Ortszeit vor
+  Abflugs-Ortszeit) verletzen `ck_offers_outbound_time_order` und werden
+  übersprungen statt gespeichert.
+- **`alarm_zu_suchanfragen()` gibt eine Liste zurück**, obwohl vorerst genau
+  ein Eintrag darin steht. Der Alarm nennt einen Zeitraum, die API will ein
+  Datum — der Datums-Fächer über den Zeitraum kommt später. Weil der Prüflauf
+  schon jetzt über eine Liste iteriert, ist das dann eine Änderung an **einer**
+  Stelle statt ein Umbau aller Aufrufer.
+- **`last_checked_at` wird auch nach einem Fehler gesetzt.** Sonst bliebe der
+  Alarm fällig und der Worker hämmerte im Minutentakt gegen eine Schnittstelle,
+  die gerade ohnehin nicht will. Der Fehlversuch steht als
+  `flight_observation` mit `search_ok = false` in der Datenbank und wird
+  dadurch aus der Preisstatistik herausgehalten.
+- **Kein `FOR UPDATE SKIP LOCKED` in `finde_faellige_alarme`** — es läuft
+  genau eine Worker-Instanz (siehe APScheduler-Entscheidung oben). Kämen zwei
+  dazu, gehört die Sperre in genau diese eine Abfrage.
 - **Zwei Eigenheiten der Amadeus-API:** `maxPrice` nimmt nur ganze
   Währungseinheiten (wir runden **ab**, nie über das Nutzerlimit), und es gibt
   keinen „max. N Umstiege"-Parameter — nur `nonStop`. Der Rest wird nach dem
@@ -157,6 +180,7 @@ Backend (aus `backend/`):
 uv sync                              # Abhängigkeiten
 uv run alembic upgrade head          # Schema
 uv run uvicorn app.main:app --reload # API → :8000  (/health, /docs)
+uv run python -m app.jobs.worker     # Worker (Prüflauf im Takt), make worker
 uv run pytest -q                     # Tests
 uv run ruff format . && uv run ruff check . && uv run mypy app
 uv run alembic revision --autogenerate -m "..."   # neue Migration
@@ -173,10 +197,11 @@ DB: `docker compose up -d db`. Kürzel im **Makefile** (`make help`).
   Umgebung hat oft keinen Docker-Daemon, aber Postgres ist per apt installierbar
   (`/usr/lib/postgresql/16/bin`, mit `initdb`/`pg_ctl` als User `postgres`
   starten) — so lässt sich der DB-Pfad echt testen.
-- **Ohne DB:** `pytest` meldet `80 passed, 32 skipped` (Integrationstests
-  überspringen sich selbst). Mit DB: `112 passed`. Beides ist „grün".
+- **Ohne DB:** `pytest` meldet `115 passed, 53 skipped` (Integrationstests
+  überspringen sich selbst). Mit DB: `168 passed`. Beides ist „grün".
 - **Branch:** der in der Session vorgegebene Entwicklungs-Branch (zuletzt
-  `claude/project-handoff-continuation-3tzcq4`, davor
+  `claude/project-handoff-continuation-9lcu5l`, davor
+  `claude/project-handoff-continuation-3tzcq4` und
   `claude/flight-price-alert-app-8sh4sy`). Dort entwickeln, committen, pushen
   (`git push -u origin <branch>`). Keine PR ohne Auftrag.
 - **Commit-Footer** (jeder Commit):
