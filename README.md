@@ -1,12 +1,17 @@
 # Flugpreis-Alarm
 
-Lern- und Portfolioprojekt: native iOS-App (SwiftUI), die Flugpreis-Alarme
-verwaltet, plus ein Python-Backend (FastAPI), das die Preise zeitgesteuert
-überwacht und bei passenden Angeboten eine Push-Benachrichtigung schickt.
+Lern- und Portfolioprojekt: eine Web-App (PWA), die Flugpreis-Alarme verwaltet,
+plus ein Python-Backend (FastAPI), das die Preise zeitgesteuert überwacht und
+bei passenden Angeboten eine Push-Benachrichtigung schickt.
 
 **Stand: M0 (Setup) und M1 (Datenbankmodell) abgeschlossen.**
-Backend läuft, das vollständige Schema ist migriert, App zeigt den
+Backend läuft, das vollständige Schema ist migriert, das Web-Frontend zeigt den
 Backend-Status an.
+
+> **Plattform:** Der Client ist eine **Web-App (PWA)**, entwickelt auf Windows,
+> lauffähig auf dem iPhone — ursprünglich als native iOS-App geplant, aus
+> praktischen Gründen umgestellt. Das „Warum" und alle Details:
+> **[docs/PLATTFORM-WEB.md](docs/PLATTFORM-WEB.md)**.
 
 📄 Planungsgrundlage: **[docs/PROJEKTPLAN.md](docs/PROJEKTPLAN.md)** —
 Architektur, Datenmodell, Ablauf, alle Meilensteine, Risiken, Teststrategie.
@@ -15,7 +20,8 @@ Architektur, Datenmodell, Ablauf, alle Meilensteine, Risiken, Teststrategie.
 
 ## In fünf Minuten zum Laufen
 
-Voraussetzungen: Docker, [uv](https://docs.astral.sh/uv/), Xcode 16+.
+Voraussetzungen: Docker und [uv](https://docs.astral.sh/uv/). **Kein Node.js,
+kein Mac.**
 
 ```bash
 # 1. Datenbank starten
@@ -39,12 +45,13 @@ $ curl -s localhost:8000/health
 Steht dort `"database":"ok"`, ist die ganze Kette Backend → Postgres bewiesen.
 
 ```bash
-# 3. App starten
-open ios/FlugAlarm.xcodeproj     # Schema FlugAlarm, Simulator, ⌘R
+# 3. Frontend ausliefern (zweites Terminal) — Python reicht, kein Node nötig
+cd web
+python -m http.server 3000
 ```
 
-Die App zeigt einen grünen Haken und darunter Datenbankstatus, Version und
-Umgebung.
+Im Browser <http://localhost:3000> öffnen. Die Seite zeigt einen grünen Haken
+und darunter Datenbankstatus, Version und Umgebung.
 
 Alle Befehle sind auch als `make`-Ziele hinterlegt — `make help` zeigt sie an.
 
@@ -57,18 +64,19 @@ Alle Befehle sind auch als `make`-Ziele hinterlegt — `make help` zeigt sie an.
 ├── docker-compose.yml       Postgres 16 (+ optional die API im Container)
 ├── Makefile                 Kurzbefehle für den Alltag — `make help`
 ├── docs/PROJEKTPLAN.md      Die vollständige Planung
+├── docs/PLATTFORM-WEB.md    Warum Web statt iOS, mit allen Deltas
 ├── backend/                 FastAPI, siehe backend/README.md
 │   ├── app/models/          die sechs Tabellen des MVP
 │   ├── alembic/versions/    Migrationen
 │   └── tests/               18 Tests (2 ohne DB, 16 Integrationstests)
-└── ios/                     SwiftUI-App, siehe ios/README.md
-    └── FlugAlarm/           App, APIClient, ViewModel, Modelle
+└── web/                     Web-Frontend, siehe web/README.md
+    └── index.html, app.js …  Statusanzeige in drei Zuständen
 ```
 
 **M0** — Der `/health`-Endpunkt ist bewusst mehr als „Hello World": Er prüft
-die Datenbankverbindung und antwortet auch dann, wenn sie fehlt. Die App stellt
-Lade-, Erfolgs- und Fehlerzustand schon jetzt getrennt dar — genau das Muster,
-das ab M4 jeder Bildschirm bekommt.
+die Datenbankverbindung und antwortet auch dann, wenn sie fehlt. Das Frontend
+stellt Lade-, Erfolgs- und Fehlerzustand schon jetzt getrennt dar — genau das
+Muster, das ab M4 jeder Bildschirm bekommt.
 
 **M1** — Das Schema enthält nicht nur Spalten, sondern die Regeln selbst:
 Startflughafen ≠ Zielflughafen, Rückflug nicht vor Hinflug, IATA-Codes in
@@ -82,12 +90,12 @@ selbst, statt rot zu werden.
 
 | Teil | Technologie |
 |---|---|
-| App | Swift, SwiftUI, MVVM mit `@Observable`, async/await, iOS 17+ |
+| Frontend | Web-App / PWA: HTML, CSS, JavaScript (vorerst ohne Framework) |
 | Backend | Python 3.12, FastAPI, SQLAlchemy 2.0 (async), Alembic |
 | Datenbank | PostgreSQL — lokal via Docker, später Supabase |
 | Auth | Supabase Auth (JWT) |
 | Flugdaten | Amadeus Flight Offers Search |
-| Push | Apple Push Notification Service (APNs) |
+| Push | Web-Push (VAPID) — kostenlos, funktioniert auf dem iPhone ab iOS 16.4 |
 | KI | Claude API (`claude-haiku-4-5`) — nur Sprachverarbeitung und Erklärtexte |
 
 ## Grundregeln
@@ -95,7 +103,7 @@ selbst, statt rot zu werden.
 1. Die App ruft niemals selbst Flugpreis-APIs auf — das macht ausschließlich
    das Backend.
 2. API-Schlüssel liegen ausschließlich in Umgebungsvariablen des Backends,
-   niemals im Client. In der App steht genau eine Adresse: die des Backends.
+   niemals im Client. Im Frontend steht genau eine Adresse: die des Backends.
 3. Die Bewertung „günstiges Angebot?" ist deterministische Statistik in Python.
    Claude formuliert nur die Erklärung dazu.
 

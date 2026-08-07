@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- viewport-fit=cover + die richtige Breite: Pflicht, damit die Seite
+         auf dem iPhone nicht winzig-herausgezoomt erscheint. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0b5cff" />
+    <title>Flugalarm</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="screen">
+      <h1>Flugalarm</h1>
+
+      <!-- Genau die drei Zustände, die zuvor die iOS-App hatte:
+           Laden / Erfolg / Fehler. JavaScript blendet den passenden ein. -->
+
+      <section id="loading" class="card">
+        <div class="spinner" aria-hidden="true"></div>
+        <p>Verbinde mit dem Backend …</p>
+      </section>
+
+      <section id="success" class="card" hidden>
+        <div id="statusIcon" class="icon">✓</div>
+        <h2 id="statusTitle">Backend erreichbar</h2>
+        <p id="statusHint" class="hint" hidden></p>
+        <dl class="details">
+          <div><dt>Datenbank</dt><dd id="dbValue">–</dd></div>
+          <div><dt>Version</dt><dd id="versionValue">–</dd></div>
+          <div><dt>Umgebung</dt><dd id="envValue">–</dd></div>
+        </dl>
+        <button class="btn" data-action="reload">Erneut prüfen</button>
+      </section>
+
+      <section id="error" class="card" hidden>
+        <div class="icon icon--warn">⚠︎</div>
+        <h2>Keine Verbindung</h2>
+        <p id="errorMessage" class="hint"></p>
+        <button class="btn btn--primary" data-action="reload">Erneut versuchen</button>
+      </section>
+    </main>
+
+    <!-- type="module": erlaubt import/export; der Browser lädt config.js selbst. -->
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

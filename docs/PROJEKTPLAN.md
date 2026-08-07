@@ -6,6 +6,14 @@ Portfolio- und Lernprojekt: native iOS-App mit Python-Backend, das Flugpreise
 Dieses Dokument ist die Planungsgrundlage. Es enthält bewusst **noch keinen
 Produktivcode** — nur Architektur, Entscheidungen, Datenmodell und Meilensteine.
 
+> ⚠️ **Plattform-Änderung (07.08.2026): Der Client ist jetzt eine Web-App
+> (PWA), keine native iOS-App.** Architektur, Datenmodell und alle
+> Backend-Entscheidungen in diesem Dokument bleiben gültig. Was den Client und
+> den Push-Versand betrifft, gilt stattdessen **[docs/PLATTFORM-WEB.md](PLATTFORM-WEB.md)**
+> — dort stehen alle Abweichungen (Technik statt Swift, Web-Push statt APNs,
+> kein Apple Developer Program, geänderte Meilensteine M4/M8/M9). Betroffene
+> Stellen unten sind mit „→ siehe PLATTFORM-WEB.md" markiert.
+
 ---
 
 ## 0. Leitplanken (die drei Sätze, an die wir uns halten)
@@ -76,6 +84,9 @@ Nachricht über APNs.
 ## 2. Technologieauswahl (mit Begründung)
 
 ### 2.1 iOS
+
+> → **Ersetzt durch das Web-Frontend, siehe PLATTFORM-WEB.md.** Die folgende
+> Tabelle bleibt als Referenz stehen, ist aber nicht mehr der aktuelle Plan.
 
 | Bereich | Empfehlung | Warum |
 |---|---|---|
@@ -577,7 +588,7 @@ skaliert besser — alles zu einem Bildschirm liegt beieinander.
 
 | # | Konto | Kosten | Wofür | Wann |
 |---|---|---|---|---|
-| 1 | **Apple Developer Program** | 99 €/Jahr | **Zwingend für Push.** Ohne Mitgliedschaft gibt es keine APNs-Schlüssel | vor M8 |
+| 1 | ~~Apple Developer Program~~ → **entfällt** | ~~99 €/Jahr~~ **0 €** | Durch den Wechsel auf Web-Push nicht mehr nötig. Stattdessen: kostenloses VAPID-Schlüsselpaar. → siehe PLATTFORM-WEB.md | — |
 | 2 | Amadeus for Developers (Self-Service) | Test kostenlos | Flight Offers Search API | vor M5 |
 | 3 | Supabase | kostenloser Tarif | Postgres + Auth | vor M1 |
 | 4 | Anthropic Console | Guthaben aufladen | Claude API | vor M10 |

@@ -1,4 +1,4 @@
-.PHONY: help install db-up db-down dev test lint fmt check up down clean \
+.PHONY: help install db-up db-down dev web test lint fmt check up down clean \
         migrate migrate-down migration migration-check db-shell
 
 help:  ## Zeigt diese Hilfe
@@ -31,6 +31,9 @@ migration-check:  ## Weichen Modelle und Datenbank voneinander ab?
 
 dev:  ## API lokal mit Auto-Reload starten (Postgres muss laufen)
 	cd backend && uv run uvicorn app.main:app --reload --port 8000
+
+web:  ## Web-Frontend ausliefern (http://localhost:3000)
+	cd web && python3 -m http.server 3000
 
 test:  ## Tests ausführen
 	cd backend && uv run pytest -q
