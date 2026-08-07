@@ -8,6 +8,12 @@
     <meta name="theme-color" content="#0b5cff" />
     <title>Flugalarm</title>
     <link rel="stylesheet" href="styles.css" />
+
+    <!-- Macht die Seite installierbar („Zum Home-Bildschirm"). Auf dem iPhone
+         ist das die Voraussetzung dafür, dass Push überhaupt möglich ist. -->
+    <link rel="manifest" href="manifest.json" />
+    <link rel="apple-touch-icon" href="icons/icon-180.png" />
+    <link rel="icon" href="icons/icon-192.png" />
   </head>
   <body>
     <!-- Die App hat genau zwei Ansichten: angemeldet oder nicht. JavaScript
@@ -65,6 +71,18 @@
         <div class="listenkopf">
           <h1>Deine Alarme</h1>
           <button class="btn btn--primaer" id="neuKnopf" type="button">+ Neuer Alarm</button>
+        </div>
+
+        <!-- Benachrichtigungen: der ganze Zweck der App. Deshalb steht der
+             Hinweis über der Liste und nicht in einem Einstellungsmenü. -->
+        <div id="pushKarte" class="karte push" hidden>
+          <div class="push__text">
+            <strong id="pushTitel">Benachrichtigungen einschalten</strong>
+            <p id="pushHinweis" class="hinweis">
+              Sonst musst du selbst nachsehen, ob ein Preis gefallen ist.
+            </p>
+          </div>
+          <button class="btn btn--primaer" id="pushKnopf" type="button">Einschalten</button>
         </div>
 
         <p id="listenFehler" class="fehler" role="alert" hidden></p>

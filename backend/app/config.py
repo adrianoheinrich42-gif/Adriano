@@ -68,6 +68,34 @@ class Settings(BaseSettings):
     # nach einem längeren Ausfall alle Alarme gleichzeitig fällig sind.
     pruflauf_max_alarme_pro_lauf: int = 20
 
+    # --- Web-Push / VAPID (M8) -------------------------------------------
+    # Das Schlüsselpaar erzeugst du einmal selbst (kostenlos):
+    #     uv run python -m scripts.vapid_schluessel
+    # Der öffentliche Schlüssel geht an den Browser, der private bleibt hier.
+    # Beide gehören in `.env`, nie ins Repository.
+    vapid_public_key: str = ""
+    vapid_private_key: str = ""
+
+    # Pflichtangabe des Web-Push-Standards: eine Kontaktadresse, an die sich
+    # der Push-Dienst wenden kann, wenn unser Server Unsinn schickt. Muss
+    # `mailto:` oder `https://` sein.
+    vapid_subject: str = "mailto:flugalarm@example.org"
+
+    # Höchstens eine Meldung je Alarm in diesem Zeitraum. Ohne diese Bremse
+    # würde ein Alarm, dessen Limit großzügig gesetzt ist, bei jedem Prüflauf
+    # melden — und die App landet stummgeschaltet.
+    push_abkuehlphase_stunden: int = 6
+
+    # Ausnahme von der Abkühlphase: So viel Prozent muss ein Preis besser sein
+    # als die letzte Meldung, damit trotzdem gemeldet wird. „Jetzt 2 € billiger"
+    # ist keine zweite Nachricht wert, „jetzt 40 € billiger" schon.
+    push_mindest_verbesserung_prozent: float = 5.0
+
+    @property
+    def push_aktiviert(self) -> bool:
+        """Ohne Schlüsselpaar läuft alles weiter — nur eben ohne Versand."""
+        return bool(self.vapid_public_key and self.vapid_private_key)
+
     # --- CORS ------------------------------------------------------------
     # Für die iOS-App irrelevant (native Apps kennen keine CORS-Regel),
     # aber nützlich, falls du das Backend im Browser testest.

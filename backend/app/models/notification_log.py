@@ -9,9 +9,15 @@ Der entscheidende Punkt: Das ist eine **Datenbank-Garantie**, keine
 Programmlogik. Selbst wenn zwei Worker im selben Moment denselben Fund
 verarbeiten, kann physisch nur einer die Zeile schreiben.
 
-Zusätzlich im Code (siehe Projektplan, Schritt 9):
+Zusätzlich im Code (siehe Projektplan, Schritt 9, umgesetzt in
+`services/push.py`):
   * Abkühlphase: höchstens eine Push je Alarm in 6 Stunden
   * erneute Meldung nur bei mindestens 5 % Preisverbesserung
+
+Die Spalten hießen bis M8 `apns_status_code` und `apns_reason`. Seit dem
+Wechsel auf Web-Push heißen sie neutral `push_status_code` und `push_error` —
+ein Name, der eine Technik nennt, die es im Projekt nicht mehr gibt, führt
+zuverlässig in die Irre.
 """
 
 import uuid
@@ -69,15 +75,22 @@ class NotificationLog(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
-    status: Mapped[str] = mapped_column(String(20), nullable=False)  # sent|failed|token_invalid
-    apns_status_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    apns_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # `pending` ist in M8 dazugekommen und ist der Zustand, in dem die Zeile
+    # **zuerst** geschrieben wird — vor dem Versand. Nur so ist der
+    # UNIQUE-Index eine echte Schutzmauer: Er muss den Platz belegen, bevor
+    # irgendetwas Langsames passiert. Ginge die Zeile erst nach dem Versand
+    # hinein, könnte zwischen Senden und Schreiben ein zweiter Lauf dieselbe
+    # Push noch einmal verschicken.
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    push_status_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    push_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     user: Mapped["User"] = relationship()
 
     __table_args__ = (
         CheckConstraint(
-            "status IN ('sent', 'failed', 'token_invalid')", name="ck_notifications_status"
+            "status IN ('pending', 'sent', 'failed', 'token_invalid')",
+            name="ck_notifications_status",
         ),
         CheckConstraint("price_cents > 0", name="ck_notifications_price_positive"),
         # Für die Abkühlphase: "wann wurde für diesen Alarm zuletzt gemeldet?"

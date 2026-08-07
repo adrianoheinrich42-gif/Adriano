@@ -65,16 +65,18 @@ backend/app/
   schemas/           price_alert.py (API-Ein/Ausgabe), flight_offer.py (intern)
   services/          users.py, price_alerts.py, amadeus.py (Client + Normalisierung),
                      pruflauf.py (M6: reine Funktionen + Orchestrierung),
-                     price_stats.py (M7: Median/Abweichung + Vergleichsabfrage)
+                     price_stats.py (M7: Median/Abweichung + Vergleichsabfrage),
+                     push.py (M8: Textbaukasten, Bremsen, Web-Push-Versand)
   jobs/worker.py     M6: APScheduler-Prozess, ruft den Prüflauf im Takt auf
-  alembic/           env.py (async, URL aus config), versions/ (1 Migration)
-backend/scripts/     amadeus_suche.py — Handsuche (uv run python -m scripts.…)
+  alembic/           env.py (async, URL aus config), versions/ (2 Migrationen)
+backend/scripts/     amadeus_suche.py — Handsuche, vapid_schluessel.py (M8)
 backend/tests/       *.py ohne DB/Netz, integration/ mit DB, fixtures/ gespeicherte
                      Amadeus-Antwort (Herkunft: fixtures/README.md lesen!),
                      attrappen.py (Doppelgänger der Flugsuche + Baukästen)
 web/                 Frontend (M4): index.html, app.js (Ansichten), api.js (nur
                      hier fetch aufs Backend), auth.js (Supabase-Anmeldung),
-                     format.js (Cent↔Euro, Datum), config.js, styles.css
+                     format.js (Cent↔Euro, Datum), config.js, styles.css,
+                     push.js + sw.js + manifest.json + icons/ (M8: PWA & Push)
 docs/SUPABASE-EINRICHTEN.md  Anleitung ohne Vorwissen (Nutzer-Aktion)
 docs/PROJEKTPLAN.md  Referenz: Architektur, Datenmodell, Meilensteine, Risiken
 docs/PLATTFORM-WEB.md  iOS→Web-Wechsel + alle Deltas zum Projektplan
@@ -201,6 +203,26 @@ Statistik), `flight_offers` (konkrete Angebote), `device_tokens` (Push-Ziel),
   wird — sonst steckt der heutige Preis im Median, gegen den er gemessen wird.
 - **Nur `search_ok = true` und `min_price_cents IS NOT NULL` zählen.** Ein
   API-Ausfall darf nicht als „an dem Tag war nichts zu holen" gelesen werden.
+- **Push-Protokollzeile wird VOR dem Versand geschrieben** (Status `pending`).
+  Der `UNIQUE`-Index auf `dedupe_key` muss den Platz belegen, bevor etwas
+  Langsames passiert — sonst könnte zwischen Senden und Schreiben ein zweiter
+  Lauf dieselbe Nachricht noch einmal verschicken.
+- **Reihenfolge der Bremsen:** Abkühlphase/5-%-Regel zuerst (billig, im
+  Speicher), dann Dedupe (`ON CONFLICT DO NOTHING`). Bei identischem Angebot
+  innerhalb der Abkühlphase greift deshalb die Abkühlphase, nicht Dedupe.
+- **Melden passiert NACH dem Commit des Prüflaufs.** Der Versand geht über das
+  Netz; hinge die Transaktion so lange offen, blockierte sie die Zeilen des
+  Alarms. Und ein Versandfehler darf Beobachtung und Angebote nicht
+  zurückrollen — die sind unabhängig davon richtig.
+- **404/410 vom Push-Dienst legt das Ziel still** (`is_active = false`), alles
+  andere nicht. 410 heißt „Erlaubnis entzogen", 503 nur „gerade Schluckauf".
+- **Der Client leitet „Push ist an" NICHT aus `Notification.permission` ab**,
+  sondern aus einem tatsächlich vorhandenen Abonnement. Beides fällt
+  auseinander (abgemeldet, zweites Gerät, Browserdaten gelöscht).
+- **`navigator.serviceWorker.ready` abwarten, nicht nur `register()`.**
+  `register()` kehrt zurück, solange der Worker noch „installing" ist —
+  `subscribe()` scheitert dann beim **ersten** Besuch mit „no active Service
+  Worker".
 - **Zwei Eigenheiten der Amadeus-API:** `maxPrice` nimmt nur ganze
   Währungseinheiten (wir runden **ab**, nie über das Nutzerlimit), und es gibt
   keinen „max. N Umstiege"-Parameter — nur `nonStop`. Der Rest wird nach dem
@@ -239,8 +261,8 @@ DB: `docker compose up -d db`. Kürzel im **Makefile** (`make help`).
   Umgebung hat oft keinen Docker-Daemon, aber Postgres ist per apt installierbar
   (`/usr/lib/postgresql/16/bin`, mit `initdb`/`pg_ctl` als User `postgres`
   starten) — so lässt sich der DB-Pfad echt testen.
-- **Ohne DB:** `pytest` meldet `142 passed, 66 skipped` (Integrationstests
-  überspringen sich selbst). Mit DB: `208 passed`. Beides ist „grün".
+- **Ohne DB:** `pytest` meldet `167 passed, 96 skipped` (Integrationstests
+  überspringen sich selbst). Mit DB: `263 passed`. Beides ist „grün".
 - **Frontend prüfen geht wirklich:** Chromium und Playwright sind vorhanden
   (`/opt/pw-browsers`, `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`, kein
   `playwright install`). Supabase lässt sich per `page.route("**/auth/v1/**")`

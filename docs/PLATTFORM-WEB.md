@@ -154,5 +154,12 @@ der niemals in den Browser gehört. Ausführlich kommentiert in `web/auth.js`.
 - **M4** — Anmeldung, Alarmliste und Anlege-Formular. Im echten Chromium
   gegen das echte Backend geprüft (11 Schritte). Einrichtung von Supabase:
   `docs/SUPABASE-EINRICHTEN.md`.
+- **M8** — Web-Push statt APNs, wie in diesem Dokument geplant. Umgesetzt:
+  `device_tokens` auf Subscription umgestellt (Migration `22e16687014f`,
+  `environment` entfallen), `pywebpush`, selbst erzeugtes VAPID-Paar
+  (`scripts/vapid_schluessel.py`), PWA-Manifest, Service Worker, Icons.
+  Im echten Chromium geprüft (12 Schritte) — inklusive echter Verschlüsselung
+  und VAPID-Signatur. **Offen: Test auf echter iPhone-Hardware**, dafür fehlt
+  HTTPS.
 - Der alte `ios/`-Ordner wurde entfernt; er liegt weiterhin in der
   Git-Historie (Commit `def9ae6`), falls je ein Blick nötig ist.

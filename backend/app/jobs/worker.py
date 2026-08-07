@@ -24,6 +24,7 @@ from app.config import Settings, get_settings
 from app.db import SessionFactory, engine
 from app.services.amadeus import AmadeusClient, Flugsuche
 from app.services.pruflauf import LaufBericht, pruefe_faellige_alarme
+from app.services.push import PushVersand, WebPushVersand
 
 logging.basicConfig(
     level=logging.INFO,
@@ -34,13 +35,19 @@ logger = logging.getLogger(__name__)
 JOB_ID = "pruflauf"
 
 
-async def fuehre_lauf_aus(suche: Flugsuche, limit: int) -> LaufBericht:
+async def fuehre_lauf_aus(
+    suche: Flugsuche, limit: int, versand: PushVersand | None, settings: Settings
+) -> LaufBericht:
     """Ein Durchgang in einer eigenen Datenbank-Session."""
     async with SessionFactory() as session:
-        return await pruefe_faellige_alarme(session, suche, limit=limit)
+        return await pruefe_faellige_alarme(
+            session, suche, limit=limit, versand=versand, settings=settings
+        )
 
 
-async def lauf_sicher(suche: Flugsuche, limit: int) -> None:
+async def lauf_sicher(
+    suche: Flugsuche, limit: int, versand: PushVersand | None, settings: Settings
+) -> None:
     """Wie `fuehre_lauf_aus`, aber wirft garantiert nicht.
 
     Der Grund ist der wichtigste Satz dieses Moduls: **Eine Ausnahme im Job
@@ -52,20 +59,24 @@ async def lauf_sicher(suche: Flugsuche, limit: int) -> None:
     geht es um alles davor und danach: Verbindungsaufbau, Abfrage, Commit.
     """
     try:
-        bericht = await fuehre_lauf_aus(suche, limit)
+        bericht = await fuehre_lauf_aus(suche, limit, versand, settings)
     except Exception:  # noqa: BLE001 — bewusst: der Scheduler muss weiterlaufen
         logger.exception("Prüflauf abgebrochen — der nächste Takt versucht es erneut.")
         return
 
     logger.info(
-        "Prüflauf fertig: %d Alarme geprüft, %d erfolgreich, %d Angebote gespeichert.",
+        "Prüflauf fertig: %d Alarme geprüft, %d erfolgreich, %d Angebote gespeichert, "
+        "%d Meldungen verschickt.",
         bericht.geprueft,
         bericht.erfolgreich,
         bericht.gespeicherte_angebote,
+        bericht.meldungen,
     )
 
 
-def erstelle_scheduler(suche: Flugsuche, settings: Settings) -> AsyncIOScheduler:
+def erstelle_scheduler(
+    suche: Flugsuche, settings: Settings, versand: PushVersand | None = None
+) -> AsyncIOScheduler:
     """Scheduler mit genau einem Job bauen (starten muss der Aufrufer).
 
     Zwei Einstellungen, die man leicht vergisst und dann teuer bezahlt:
@@ -82,7 +93,7 @@ def erstelle_scheduler(suche: Flugsuche, settings: Settings) -> AsyncIOScheduler
         lauf_sicher,
         trigger="interval",
         minutes=settings.pruflauf_intervall_minuten,
-        args=[suche, settings.pruflauf_max_alarme_pro_lauf],
+        args=[suche, settings.pruflauf_max_alarme_pro_lauf, versand, settings],
         id=JOB_ID,
         max_instances=1,
         coalesce=True,
@@ -100,7 +111,18 @@ async def main() -> None:
     )
 
     client = AmadeusClient(settings)
-    scheduler = erstelle_scheduler(client, settings)
+
+    # Ohne VAPID-Schlüsselpaar läuft der Worker weiter, es geht nur nichts
+    # raus. Das ist Absicht: Die Kernfunktion (suchen, aufzeichnen, bewerten)
+    # darf nicht daran hängen, dass ein Schlüssel hinterlegt wurde.
+    versand: PushVersand | None = WebPushVersand(settings) if settings.push_aktiviert else None
+    if versand is None:
+        logger.warning(
+            "Kein VAPID-Schlüsselpaar hinterlegt — es werden KEINE Benachrichtigungen "
+            "verschickt. Erzeugen mit: uv run python -m scripts.vapid_schluessel"
+        )
+
+    scheduler = erstelle_scheduler(client, settings, versand)
 
     # Ohne dieses Ereignis müsste `main()` in einer Endlosschleife pollen.
     # SIGTERM kommt vom Hoster beim Deployment, SIGINT von Strg-C.
@@ -111,7 +133,7 @@ async def main() -> None:
 
     scheduler.start()
     # Einmal sofort loslegen, statt den ersten Takt abzuwarten.
-    await lauf_sicher(client, settings.pruflauf_max_alarme_pro_lauf)
+    await lauf_sicher(client, settings.pruflauf_max_alarme_pro_lauf, versand, settings)
 
     try:
         await beenden.wait()

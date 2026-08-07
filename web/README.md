@@ -1,6 +1,7 @@
-# Web-Frontend (M4)
+# Web-Frontend (M4 + M8)
 
-Die Web-App: anmelden, Preisalarme ansehen, anlegen, pausieren und löschen.
+Die Web-App: anmelden, Preisalarme ansehen, anlegen, pausieren und löschen —
+und Push-Benachrichtigungen empfangen, wenn ein Preis passt.
 
 Bewusst **ohne Framework**: reines HTML, CSS und JavaScript. Der Browser lädt
 die Dateien direkt, es gibt keinen Build-Schritt und **du brauchst kein
@@ -50,6 +51,9 @@ Dann im Browser öffnen: <http://localhost:3000>
 | `api.js` | Alle Aufrufe ans eigene Backend; macht aus Statuscodes deutsche Sätze |
 | `format.js` | Geld (Cent ↔ Euro), Datum, „vor 5 Minuten" |
 | `app.js` | Ansichten umschalten und die Liste zeichnen |
+| `push.js` | Benachrichtigungen ein- und ausschalten |
+| `sw.js` | Service Worker — läuft, wenn die App geschlossen ist |
+| `manifest.json`, `icons/` | Macht die Seite installierbar |
 | `styles.css` | Aussehen, hell und dunkel |
 
 Die Aufteilung folgt einer Regel: **Nur `api.js` ruft `fetch` auf das eigene
@@ -72,6 +76,31 @@ Eingabefeld Euro will und die API Cent.
 4. Backend mit `--host 0.0.0.0` starten, damit es von außen erreichbar ist.
 5. Beide Adressen in `CORS_ORIGINS` des Backends eintragen.
 
-Für **Push-Benachrichtigungen** (M8) reicht das nicht mehr: Das iPhone
-verlangt dafür HTTPS und dass die Seite über „Zum Home-Bildschirm" installiert
-wurde. Details in `../docs/PLATTFORM-WEB.md`.
+## Benachrichtigungen (M8)
+
+Damit überhaupt etwas verschickt werden kann, braucht das Backend ein
+VAPID-Schlüsselpaar:
+
+```bash
+cd backend
+uv run python -m scripts.vapid_schluessel     # zwei Zeilen -> .env
+```
+
+**Nur einmal erzeugen.** Ein neues Paar macht alle bestehenden
+Geräte-Anmeldungen wertlos.
+
+Fehlt das Paar, läuft alles weiter — es geht nur keine Nachricht raus, und
+die App zeigt das ehrlich an.
+
+### Auf dem iPhone
+
+Zwei Bedingungen, die beide erfüllt sein müssen:
+
+1. **HTTPS.** `localhost` ist die einzige Ausnahme; über die WLAN-IP
+   (`http://192.168.…`) geht Push **nicht**. Dafür braucht es einen Tunnel
+   (z. B. `cloudflared`) oder das Deployment.
+2. **Installiert.** In Safari unten auf „Teilen" → „Zum Home-Bildschirm".
+   Danach die App von dort öffnen. Im normalen Safari-Tab fehlt die
+   Push-Schnittstelle komplett — die App erklärt das, wenn es soweit ist.
+
+Details in `../docs/PLATTFORM-WEB.md`.

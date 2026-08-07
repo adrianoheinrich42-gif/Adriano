@@ -26,6 +26,7 @@ from sqlalchemy import DateTime, func, literal, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import Settings
 from app.models.flight_observation import FlightObservation
 from app.models.flight_offer import FlightOffer
 from app.models.price_alert import PriceAlert
@@ -38,6 +39,7 @@ from app.services.amadeus import (
     Suchanfrage,
 )
 from app.services.price_stats import Preisbewertung, bewerte_preis, hole_vergleichspreise
+from app.services.push import MeldeErgebnis, PushVersand, melde_treffer
 
 logger = logging.getLogger(__name__)
 
@@ -235,6 +237,23 @@ class LaufErgebnis:
     # Einordnung des besten gespeicherten Angebots gegen die Streckenhistorie
     # (M7). `None`, wenn dieser Lauf nichts Passendes gefunden hat.
     bewertung: Preisbewertung | None = None
+    # Ergebnis des Meldeversuchs (M8). `None`, wenn nichts zu melden war oder
+    # kein Versand übergeben wurde.
+    meldung: MeldeErgebnis | None = None
+
+
+@dataclass(frozen=True)
+class GespeichertesAngebot:
+    """Ein Angebot, das den Filter überstanden hat und in der Datenbank steht.
+
+    Die `id` und der `offer_hash` werden erst für die Meldung gebraucht (M8):
+    die eine als Fremdschlüssel im Protokoll, der andere als Zutat des
+    Dedupe-Schlüssels.
+    """
+
+    id: uuid.UUID
+    offer_hash: str
+    angebot: Flugangebot
 
 
 @dataclass
@@ -254,6 +273,16 @@ class LaufBericht:
     @property
     def gespeicherte_angebote(self) -> int:
         return sum(e.angebote_gespeichert for e in self.ergebnisse)
+
+    @property
+    def meldungen(self) -> int:
+        """Wie viele Nachrichten tatsächlich zugestellt wurden.
+
+        Nicht „wie oft ein Treffer da war": Die meisten Läufe finden dasselbe
+        Angebot wieder, und das ist dank Dedupe und Abkühlphase korrekterweise
+        keine Meldung.
+        """
+        return sum(1 for e in self.ergebnisse if e.meldung is not None and e.meldung.gemeldet)
 
 
 # ---------------------------------------------------------------------------
@@ -307,6 +336,8 @@ async def pruefe_alarm(
     alert: PriceAlert,
     suche: Flugsuche,
     jetzt: datetime | None = None,
+    versand: PushVersand | None = None,
+    settings: Settings | None = None,
 ) -> LaufErgebnis:
     """Ein kompletter Lauf für **einen** Alarm.
 
@@ -321,6 +352,10 @@ async def pruefe_alarm(
     5. `last_checked_at` setzen — **auch nach einem Fehler**. Sonst bliebe der
        Alarm „fällig" und der Worker hämmerte im Minutentakt gegen eine
        Schnittstelle, die gerade ohnehin nicht will.
+    6. Erst **nach** dem Commit melden (M8) — siehe unten.
+
+    `versand` ist optional. Ohne ihn läuft alles wie in M7, es geht nur keine
+    Nachricht raus. Genau so verhalten sich die Tests der Schritte 1–5.
 
     Wirft nicht: Amadeus-Fehler landen im `LaufErgebnis`.
     """
@@ -383,13 +418,15 @@ async def pruefe_alarm(
     # halten — entweder der ganze Lauf steht in der Datenbank oder keiner.
     await session.flush()
 
-    gespeicherte_preise = await _speichere_angebote(session, alert, beobachtung.id, angebote, jetzt)
+    gespeichert = await _speichere_angebote(session, alert, beobachtung.id, angebote, jetzt)
 
     # Eingeordnet wird der **beste Treffer**, also das günstigste Angebot, das
-    # tatsächlich zum Alarm passt — genau das würde später die Push auslösen.
+    # tatsächlich zum Alarm passt — genau das löst gleich die Push aus.
     bewertung: Preisbewertung | None = None
-    if gespeicherte_preise:
-        bewertung = bewerte_preis(min(gespeicherte_preise), vergleichspreise)
+    bester: GespeichertesAngebot | None = None
+    if gespeichert:
+        bester = min(gespeichert, key=lambda g: g.angebot.preis_cents)
+        bewertung = bewerte_preis(bester.angebot.preis_cents, vergleichspreise)
         logger.info(
             "Alarm %s: bester Treffer %d Cent → %s (%d Vergleichswerte).",
             alert.id,
@@ -401,12 +438,33 @@ async def pruefe_alarm(
     alert.last_checked_at = jetzt
     await session.commit()
 
+    # **Nach** dem Commit melden, nie davor. Der Versand geht über das Netz und
+    # kann Sekunden dauern; hinge die Transaktion des Prüflaufs so lange offen,
+    # blockierte sie die Zeilen dieses Alarms. Und schlägt der Versand fehl,
+    # sollen Beobachtung und Angebote trotzdem gespeichert bleiben — die sind
+    # unabhängig davon richtig.
+    meldung: MeldeErgebnis | None = None
+    if versand is not None and settings is not None and bester is not None:
+        assert bewertung is not None  # entsteht im selben `if gespeichert`
+        meldung = await melde_treffer(
+            session=session,
+            alert=alert,
+            angebot=bester.angebot,
+            offer_hash=bester.offer_hash,
+            flight_offer_id=bester.id,
+            bewertung=bewertung,
+            versand=versand,
+            settings=settings,
+            jetzt=jetzt,
+        )
+
     return LaufErgebnis(
         alarm_id=alert.id,
         search_ok=search_ok,
         angebote_gefunden=len(angebote),
-        angebote_gespeichert=len(gespeicherte_preise),
+        angebote_gespeichert=len(gespeichert),
         bewertung=bewertung,
+        meldung=meldung,
         min_preis_cents=min_preis,
         spaeter_erneut=spaeter_erneut,
         fehler=fehler,
@@ -419,39 +477,49 @@ async def _speichere_angebote(
     beobachtung_id: uuid.UUID,
     angebote: list[Flugangebot],
     jetzt: datetime,
-) -> list[int]:
-    """Passende Angebote per Upsert ablegen; gibt deren Preise zurück.
+) -> list[GespeichertesAngebot]:
+    """Passende Angebote per Upsert ablegen; gibt sie mit ihrer Zeilen-ID zurück.
 
     „Passend" heißt: gleiche Währung wie der Alarm und Preis **nicht über**
     dem Limit. Amadeus bekommt das Limit bewusst nicht mit (siehe
     `alarm_zu_suchanfragen`), gefiltert wird also ausschließlich hier.
 
-    Die Preise statt nur einer Anzahl, weil der Aufrufer den **besten**
-    Treffer für die Einordnung (M7) braucht.
+    Nicht nur die Anzahl, weil der Aufrufer den **besten** Treffer braucht:
+    für die Einordnung (M7) den Preis, für das Meldeprotokoll (M8) die
+    `flight_offers.id` und den `offer_hash`.
     """
-    gespeicherte_preise: list[int] = []
+    gespeichert: list[GespeichertesAngebot] = []
 
     for angebot in angebote:
         werte = _angebot_als_zeile(alert, beobachtung_id, angebot, jetzt)
         if werte is None:
             continue
 
-        stmt = pg_insert(FlightOffer).values(**werte)
-        stmt = stmt.on_conflict_do_update(
+        einfuegen = pg_insert(FlightOffer).values(**werte)
+        stmt = einfuegen.on_conflict_do_update(
             constraint="uq_offers_alert_hash",
             set_={
                 # Nur „zuletzt gesehen" wandert weiter. `found_at` bleibt der
                 # Erstfund — sonst wüsste niemand mehr, wie lange es das
                 # Angebot schon gibt.
-                "last_seen_at": stmt.excluded.last_seen_at,
-                "flight_observation_id": stmt.excluded.flight_observation_id,
-                "raw_payload": stmt.excluded.raw_payload,
+                "last_seen_at": einfuegen.excluded.last_seen_at,
+                "flight_observation_id": einfuegen.excluded.flight_observation_id,
+                "raw_payload": einfuegen.excluded.raw_payload,
             },
-        )
-        await session.execute(stmt)
-        gespeicherte_preise.append(angebot.preis_cents)
+            # `RETURNING` liefert die ID auch dann, wenn die Zeile nur
+            # aktualisiert wurde — anders als bei `DO NOTHING`, wo sie leer bliebe.
+        ).returning(FlightOffer.id)
 
-    return gespeicherte_preise
+        ergebnis = await session.execute(stmt)
+        gespeichert.append(
+            GespeichertesAngebot(
+                id=ergebnis.scalar_one(),
+                offer_hash=str(werte["offer_hash"]),
+                angebot=angebot,
+            )
+        )
+
+    return gespeichert
 
 
 def _angebot_als_zeile(
@@ -514,6 +582,8 @@ async def pruefe_faellige_alarme(
     suche: Flugsuche,
     jetzt: datetime | None = None,
     limit: int = 20,
+    versand: PushVersand | None = None,
+    settings: Settings | None = None,
 ) -> LaufBericht:
     """Ein kompletter Durchgang: alle fälligen Alarme der Reihe nach prüfen.
 
@@ -545,7 +615,9 @@ async def pruefe_faellige_alarme(
                 # Der Nutzer hat den Alarm zwischen Abfrage und Lauf gelöscht.
                 logger.info("Alarm %s ist verschwunden — übersprungen.", alarm_id)
                 continue
-            bericht.ergebnisse.append(await pruefe_alarm(session, alert, suche, jetzt))
+            bericht.ergebnisse.append(
+                await pruefe_alarm(session, alert, suche, jetzt, versand, settings)
+            )
         except Exception as exc:  # noqa: BLE001 — bewusst: Lauf weiterlaufen lassen
             logger.exception("Alarm %s: Lauf abgebrochen — %s", alarm_id, exc)
             await session.rollback()

@@ -18,7 +18,23 @@ import {
   melde_an,
   registriere,
 } from "./auth.js";
-import { centNachEuro, datumLesbar, euroNachCent, strecke, umstiegeLesbar, zeitpunktLesbar } from "./format.js";
+import {
+  centNachEuro,
+  datumLesbar,
+  euroNachCent,
+  strecke,
+  umstiegeLesbar,
+  zeitpunktLesbar,
+} from "./format.js";
+import {
+  PushFehler,
+  erlaubnisStatus,
+  frischeAuf,
+  istAbonniert,
+  schalteAus,
+  schalteEin,
+  warumNichtVerfuegbar,
+} from "./push.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -48,7 +64,11 @@ function behandle(fehler, ziel) {
     zeigeAnmeldung(fehler.message);
     return;
   }
-  if (fehler instanceof ApiFehler || fehler instanceof AnmeldeFehler) {
+  if (
+    fehler instanceof ApiFehler ||
+    fehler instanceof AnmeldeFehler ||
+    fehler instanceof PushFehler
+  ) {
     zeigeFehler(ziel, fehler.message);
     return;
   }
@@ -139,12 +159,98 @@ async function beiAbmelden() {
   zeigeAnmeldung();
 }
 
+// --- Benachrichtigungen -----------------------------------------------------
+
+/**
+ * Die Push-Karte an den tatsächlichen Zustand anpassen.
+ *
+ * Vier Zustände, und jeder braucht einen anderen Satz:
+ *
+ * * **Geht hier nicht** — z. B. iPhone-Safari ohne Installation. Dann kein
+ *   Knopf, sondern die Erklärung, was zu tun ist.
+ * * **Abgelehnt** — der Browser fragt nicht noch einmal; ein Knopf wäre eine
+ *   Lüge. Also der Hinweis auf die Einstellungen.
+ * * **Abonniert** — Knopf zum Abschalten.
+ * * **Sonst** — Knopf zum Einschalten.
+ *
+ * Der vorletzte Fall hängt am **tatsächlichen Abonnement**, nicht an der
+ * Erlaubnis: Beides kann auseinanderfallen (siehe `istAbonniert`), und dann
+ * stünde hier „ist an", obwohl nie eine Nachricht ankäme.
+ */
+async function zeichnePushKarte() {
+  const karte = $("pushKarte");
+  const titel = $("pushTitel");
+  const hinweis = $("pushHinweis");
+  const knopf = $("pushKnopf");
+
+  karte.hidden = false;
+  knopf.disabled = false;
+
+  const hindernis = warumNichtVerfuegbar();
+  if (hindernis) {
+    titel.textContent = "Benachrichtigungen hier nicht möglich";
+    hinweis.textContent = hindernis;
+    knopf.hidden = true;
+    return;
+  }
+
+  knopf.hidden = false;
+  const status = erlaubnisStatus();
+
+  if (await istAbonniert()) {
+    titel.textContent = "Benachrichtigungen sind an";
+    hinweis.textContent = "Wir melden uns, sobald ein Preis unter dein Limit fällt.";
+    knopf.textContent = "Ausschalten";
+    knopf.className = "btn btn--schlicht";
+  } else if (status === "denied") {
+    titel.textContent = "Benachrichtigungen sind blockiert";
+    hinweis.textContent =
+      "Du hast sie abgelehnt. Das lässt sich nur in den Browser-Einstellungen " +
+      "dieser Seite wieder ändern.";
+    knopf.hidden = true;
+  } else {
+    titel.textContent = "Benachrichtigungen einschalten";
+    hinweis.textContent = "Sonst musst du selbst nachsehen, ob ein Preis gefallen ist.";
+    knopf.textContent = "Einschalten";
+    knopf.className = "btn btn--primaer";
+  }
+}
+
+async function beiPushKnopf() {
+  const knopf = $("pushKnopf");
+  zeigeFehler($("listenFehler"), "");
+  knopf.disabled = true;
+
+  try {
+    if (await istAbonniert()) {
+      await schalteAus();
+      await zeichnePushKarte();
+      // Die Browser-Erlaubnis selbst kann eine Webseite nicht zurücknehmen —
+      // nur das Abonnement. Die Karte steht danach wieder auf „einschalten",
+      // und dieser Satz erklärt, dass das Abschalten trotzdem gewirkt hat.
+      $("pushHinweis").textContent =
+        "Abgemeldet. Es kommen keine Nachrichten mehr, bis du sie wieder einschaltest.";
+    } else {
+      await schalteEin();
+      await zeichnePushKarte();
+    }
+  } catch (fehler) {
+    behandle(fehler, $("listenFehler"));
+  } finally {
+    knopf.disabled = false;
+  }
+}
+
 // --- Alarmliste -------------------------------------------------------------
 
 async function zeigeAlarme() {
   zeigeAnsicht("alarme");
   $("kopfEmail").textContent = angemeldeteEmail() ?? "";
   zeigeFehler($("listenFehler"), "");
+  void zeichnePushKarte();
+  // Still im Hintergrund: Push-Dienste erneuern Subscriptions gelegentlich
+  // von sich aus. Das Backend macht daraus einen Upsert, kostet also nichts.
+  void frischeAuf();
 
   $("listeLaedt").hidden = false;
   $("listeLeer").hidden = true;
@@ -331,6 +437,7 @@ function verdrahte() {
   $("registrierenKnopf").addEventListener("click", beiRegistrieren);
   $("abmeldenKnopf").addEventListener("click", beiAbmelden);
   $("neuKnopf").addEventListener("click", oeffneDialog);
+  $("pushKnopf").addEventListener("click", beiPushKnopf);
   $("alarmFormular").addEventListener("submit", beiSpeichern);
   $("abbrechenKnopf").addEventListener("click", () => $("alarmDialog").close());
 }

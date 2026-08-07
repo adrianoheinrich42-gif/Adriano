@@ -14,6 +14,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from app.models.device_token import DeviceToken
 from app.models.price_alert import PriceAlert
 from app.schemas.flight_offer import Flugangebot, Flugsegment, Teilstrecke
 from app.services.amadeus import (
@@ -21,6 +22,7 @@ from app.services.amadeus import (
     filtere_nach_umstiegen,
     normalisiere_antwort,
 )
+from app.services.push import Nachricht
 
 FIXTURE = Path(__file__).parent / "fixtures" / "amadeus_flight_offers_muc_bcn.json"
 
@@ -144,3 +146,46 @@ def baue_angebot(
         inkludierte_gepaeckstuecke=gepaeckstuecke,
         rohdaten={"id": "1", "price": {"grandTotal": f"{preis_cents / 100:.2f}"}},
     )
+
+
+class PushVersandAttrappe:
+    """Verhält sich wie der Web-Push-Versand, schickt aber nichts.
+
+    Merkt sich alle Zustellungen (`self.gesendet`) als Paare aus Endpoint und
+    Nachricht — so lässt sich prüfen, **was** an **wen** ging, nicht nur, dass
+    irgendetwas passiert ist.
+
+    `fehler_fuer` bildet einzelne Endpoints auf einen Fehler ab. Damit lässt
+    sich der wichtigste Fall nachstellen: Ein Gerät antwortet mit 410
+    („Erlaubnis entzogen"), ein zweites nimmt die Nachricht an — und nur das
+    erste darf danach stillgelegt sein.
+    """
+
+    def __init__(self, fehler_fuer: dict[str, Exception] | None = None) -> None:
+        self.gesendet: list[tuple[str, Nachricht]] = []
+        self._fehler_fuer = fehler_fuer or {}
+
+    async def sende(self, ziel: DeviceToken, nachricht: Nachricht) -> None:
+        fehler = self._fehler_fuer.get(ziel.endpoint)
+        if fehler is not None:
+            raise fehler
+        self.gesendet.append((ziel.endpoint, nachricht))
+
+    @property
+    def anzahl(self) -> int:
+        return len(self.gesendet)
+
+
+# Ein echt aussehender Schlüssel (65 Byte base64url) — nur als Testdatum.
+P256DH_BEISPIEL = (
+    "BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM="
+)
+
+
+def baue_subscription(
+    endpoint: str = "https://push.beispiel.test/abc",
+    p256dh: str = P256DH_BEISPIEL,
+    auth: str = "tBHItJI5svbpez7KI4CCXg==",
+) -> dict[str, object]:
+    """Das JSON, das der Browser bei `subscription.toJSON()` ausspuckt."""
+    return {"endpoint": endpoint, "expirationTime": None, "keys": {"p256dh": p256dh, "auth": auth}}

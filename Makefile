@@ -1,4 +1,4 @@
-.PHONY: help install db-up db-down dev worker web test lint fmt check up down clean \
+.PHONY: help install db-up db-down dev worker web vapid test lint fmt check up down clean \
         migrate migrate-down migration migration-check db-shell suche
 
 help:  ## Zeigt diese Hilfe
@@ -34,6 +34,9 @@ dev:  ## API lokal mit Auto-Reload starten (Postgres muss laufen)
 
 worker:  ## Prüflauf-Worker starten (zweiter Prozess neben der API)
 	cd backend && uv run python -m app.jobs.worker
+
+vapid:  ## VAPID-Schlüsselpaar für Web-Push erzeugen (nur EINMAL!)
+	cd backend && uv run python -m scripts.vapid_schluessel
 
 web:  ## Web-Frontend ausliefern (http://localhost:3000)
 	cd web && python3 -m http.server 3000

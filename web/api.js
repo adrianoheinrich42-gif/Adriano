@@ -154,4 +154,9 @@ export const Api = {
   alarmAnlegen: (daten) => rufeAuf("/alerts", { methode: "POST", daten }),
   alarmAendern: (id, daten) => rufeAuf(`/alerts/${id}`, { methode: "PATCH", daten }),
   alarmLoeschen: (id) => rufeAuf(`/alerts/${id}`, { methode: "DELETE" }),
+
+  pushConfig: () => rufeAuf("/push/config"),
+  pushAnmelden: (subscription) =>
+    rufeAuf("/push/subscriptions", { methode: "POST", daten: subscription }),
+  pushAbmelden: (daten) => rufeAuf("/push/subscriptions", { methode: "DELETE", daten }),
 };

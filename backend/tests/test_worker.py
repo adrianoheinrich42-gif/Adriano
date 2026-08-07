@@ -12,6 +12,7 @@ from typing import Any
 
 import pytest
 
+from app.config import get_settings
 from app.jobs.worker import JOB_ID, erstelle_scheduler, lauf_sicher
 from app.services.pruflauf import LaufBericht, LaufErgebnis
 from tests.attrappen import FlugsucheAttrappe
@@ -55,7 +56,9 @@ def test_limit_wird_an_den_lauf_durchgereicht():
 
 
 async def test_lauf_sicher_meldet_das_ergebnis(monkeypatch: pytest.MonkeyPatch, caplog: Any):
-    async def erfolgreicher_lauf(suche: Any, limit: int) -> LaufBericht:
+    async def erfolgreicher_lauf(
+        suche: Any, limit: int, versand: Any, settings: Any
+    ) -> LaufBericht:
         import uuid
 
         return LaufBericht(
@@ -65,7 +68,7 @@ async def test_lauf_sicher_meldet_das_ergebnis(monkeypatch: pytest.MonkeyPatch, 
     monkeypatch.setattr("app.jobs.worker.fuehre_lauf_aus", erfolgreicher_lauf)
 
     with caplog.at_level("INFO"):
-        await lauf_sicher(FlugsucheAttrappe(), 20)
+        await lauf_sicher(FlugsucheAttrappe(), 20, None, get_settings())
 
     assert "1 Alarme geprüft" in caplog.text
     assert "2 Angebote gespeichert" in caplog.text
@@ -78,12 +81,12 @@ async def test_ausnahme_beendet_den_scheduler_nicht(monkeypatch: pytest.MonkeyPa
     verhindern. Also: Fehler ins Log, aber keine Ausnahme nach außen.
     """
 
-    async def kaputter_lauf(suche: Any, limit: int) -> LaufBericht:
+    async def kaputter_lauf(suche: Any, limit: int, versand: Any, settings: Any) -> LaufBericht:
         raise ConnectionError("Datenbank weg")
 
     monkeypatch.setattr("app.jobs.worker.fuehre_lauf_aus", kaputter_lauf)
 
     with caplog.at_level("ERROR"):
-        await lauf_sicher(FlugsucheAttrappe(), 20)  # darf nicht werfen
+        await lauf_sicher(FlugsucheAttrappe(), 20, None, get_settings())  # darf nicht werfen
 
     assert "Datenbank weg" in caplog.text

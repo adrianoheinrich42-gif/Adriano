@@ -21,6 +21,7 @@ dependencies = [
     # (für den Testclient) — jetzt braucht ihn der Anwendungscode selbst.
     "httpx>=0.27",
     "apscheduler>=3.10",
+    "pywebpush>=2.4.0",
 ]
 
 [dependency-groups]
@@ -51,6 +52,13 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 [tool.mypy]
 python_version = "3.11"
 strict = true
+
+# `pywebpush` bringt keine Typ-Informationen mit (kein py.typed). Der Import
+# wird deshalb einzeln freigestellt — nicht global, damit ein fehlender Typ
+# an einer anderen Stelle weiterhin auffällt.
+[[tool.mypy.overrides]]
+module = ["pywebpush.*"]
+ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 # APScheduler liefert keine Typinformationen mit (kein py.typed). Ohne diese

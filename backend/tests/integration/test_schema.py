@@ -106,9 +106,37 @@ async def test_ungueltiger_alarm_wird_abgelehnt(
         await db_session.flush()
 
 
-async def test_geraetetoken_nur_sandbox_oder_production(db_session: AsyncSession) -> None:
+async def test_geraetetoken_nur_plattform_web(db_session: AsyncSession) -> None:
+    """Seit M8 ist Web-Push die einzige Plattform — 'ios' gibt es nicht mehr."""
     user = await _user(db_session)
-    db_session.add(DeviceToken(user_id=user.id, token="abc123", environment="staging"))
+    db_session.add(
+        DeviceToken(
+            user_id=user.id,
+            endpoint="https://push.beispiel.test/xyz",
+            p256dh="p256dh-wert",
+            auth="auth-wert",
+            platform="ios",
+        )
+    )
+
+    with pytest.raises(IntegrityError):
+        await db_session.flush()
+
+
+async def test_derselbe_endpoint_kann_kein_zweites_mal_gespeichert_werden(
+    db_session: AsyncSession,
+) -> None:
+    """Sonst käme jede Meldung doppelt an — der Browser meldet sich oft neu an."""
+    user = await _user(db_session)
+    for _ in range(2):
+        db_session.add(
+            DeviceToken(
+                user_id=user.id,
+                endpoint="https://push.beispiel.test/doppelt",
+                p256dh="p256dh-wert",
+                auth="auth-wert",
+            )
+        )
 
     with pytest.raises(IntegrityError):
         await db_session.flush()
@@ -213,7 +241,14 @@ async def test_nutzer_loeschen_entfernt_alle_abhaengigen_daten(
     user = await _user(db_session)
     alert = _alert(user)
     db_session.add(alert)
-    db_session.add(DeviceToken(user_id=user.id, token=uuid.uuid4().hex, environment="sandbox"))
+    db_session.add(
+        DeviceToken(
+            user_id=user.id,
+            endpoint=f"https://push.beispiel.test/{uuid.uuid4().hex}",
+            p256dh="p256dh-wert",
+            auth="auth-wert",
+        )
+    )
     await db_session.flush()
 
     db_session.add(
