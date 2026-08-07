@@ -1,7 +1,7 @@
 # HANDOFF.md — Arbeitsstand
 
 **Stand:** 2026-08-07 · Branch `claude/project-handoff-continuation-3tzcq4` ·
-Arbeitsverzeichnis **sauber**, alles committet und **gepusht** (`49ffcd3`).
+Arbeitsverzeichnis **sauber**, alles committet und **gepusht**.
 Zuerst `CLAUDE.md` lesen, dann diese Datei, dann `git log` / `git status`.
 
 Meilenstein-Commits (dazwischen liegen reine Doku-Commits):
