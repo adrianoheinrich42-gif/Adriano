@@ -30,36 +30,6 @@ const BADGE = {
 };
 
 /**
- * Der erklärende Satz unter dem Preis.
- *
- * Der Fall `zu_wenig_daten` ist der wichtigste: Dann **keine Prozentzahl**,
- * sondern die ehrliche Auskunft, dass die Datenlage noch nichts hergibt.
- * Genau dafür schickt das Backend dort `null` statt 0.
- */
-function bewertungssatz(bewertung) {
-  if (bewertung.ist_bestpreis) {
-    return "Günstigster Preis, den wir für diese Strecke bisher gesehen haben.";
-  }
-  if (bewertung.einordnung === "zu_wenig_daten") {
-    return (
-      `Für einen Vergleich fehlen noch Daten (${bewertung.datenpunkte} Beobachtungen). ` +
-      "Sobald genug zusammengekommen ist, siehst du hier, ob der Preis gut ist."
-    );
-  }
-
-  const median = centNachEuro(bewertung.median_cents);
-  const abweichung = Math.abs(Math.round(bewertung.abweichung_prozent));
-
-  if (bewertung.einordnung === "guenstig") {
-    return `${abweichung} % unter dem üblichen Preis für diese Strecke (sonst etwa ${median}).`;
-  }
-  if (bewertung.einordnung === "teuer") {
-    return `${abweichung} % über dem üblichen Preis (sonst etwa ${median}) — aber unter deinem Limit.`;
-  }
-  return `Etwa im üblichen Rahmen für diese Strecke (Median ${median}).`;
-}
-
-/**
  * Der Preisverlauf als kleine SVG-Kurve.
  *
  * Von Hand gezeichnet statt mit einer Diagramm-Bibliothek: Es sind zwanzig
@@ -242,6 +212,7 @@ function zeichneBewertung(verlauf) {
     badge.hidden = true;
     $("bewertungText").textContent =
       "Der Prüflauf hat bisher nichts unter deinem Limit gefunden.";
+    $("bewertungQuelle").hidden = true;
   } else {
     karte.hidden = false;
     badge.hidden = false;
@@ -250,7 +221,16 @@ function zeichneBewertung(verlauf) {
     const stil = BADGE[verlauf.bewertung.einordnung] ?? BADGE.normal;
     badge.textContent = verlauf.bewertung.ist_bestpreis ? "Bestpreis" : stil.text;
     badge.className = `badge ${verlauf.bewertung.ist_bestpreis ? "badge--gut" : stil.klasse}`;
-    $("bewertungText").textContent = bewertungssatz(verlauf.bewertung);
+
+    // Der Satz kommt seit M10 **fertig vom Backend**. Bis M9 baute ihn diese
+    // Datei selbst zusammen — das war ein Riss in Leitplanke 1 („der Client
+    // bewertet nichts") und außerdem eine zweite Stelle, an der dieselbe
+    // Aussage in anderen Worten stand.
+    $("bewertungText").textContent = verlauf.erklaerung ?? "";
+
+    // Wer einen Text von einem Sprachmodell liest, soll das wissen, ohne
+    // raten zu müssen.
+    $("bewertungQuelle").hidden = verlauf.erklaerung_quelle !== "claude";
   }
 
   // Eine Kurve aus einem einzigen Punkt sagt nichts — dann lieber nichts.

@@ -23,6 +23,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.config import Settings, get_settings
 from app.db import SessionFactory, engine
 from app.services.amadeus import AmadeusClient, Flugsuche
+from app.services.claude import ClaudeTexter, Texter
 from app.services.pruflauf import LaufBericht, pruefe_faellige_alarme
 from app.services.push import PushVersand, WebPushVersand
 
@@ -36,17 +37,25 @@ JOB_ID = "pruflauf"
 
 
 async def fuehre_lauf_aus(
-    suche: Flugsuche, limit: int, versand: PushVersand | None, settings: Settings
+    suche: Flugsuche,
+    limit: int,
+    versand: PushVersand | None,
+    settings: Settings,
+    texter: Texter | None,
 ) -> LaufBericht:
     """Ein Durchgang in einer eigenen Datenbank-Session."""
     async with SessionFactory() as session:
         return await pruefe_faellige_alarme(
-            session, suche, limit=limit, versand=versand, settings=settings
+            session, suche, limit=limit, versand=versand, settings=settings, texter=texter
         )
 
 
 async def lauf_sicher(
-    suche: Flugsuche, limit: int, versand: PushVersand | None, settings: Settings
+    suche: Flugsuche,
+    limit: int,
+    versand: PushVersand | None,
+    settings: Settings,
+    texter: Texter | None = None,
 ) -> None:
     """Wie `fuehre_lauf_aus`, aber wirft garantiert nicht.
 
@@ -59,7 +68,7 @@ async def lauf_sicher(
     geht es um alles davor und danach: Verbindungsaufbau, Abfrage, Commit.
     """
     try:
-        bericht = await fuehre_lauf_aus(suche, limit, versand, settings)
+        bericht = await fuehre_lauf_aus(suche, limit, versand, settings, texter)
     except Exception:  # noqa: BLE001 — bewusst: der Scheduler muss weiterlaufen
         logger.exception("Prüflauf abgebrochen — der nächste Takt versucht es erneut.")
         return
@@ -75,7 +84,10 @@ async def lauf_sicher(
 
 
 def erstelle_scheduler(
-    suche: Flugsuche, settings: Settings, versand: PushVersand | None = None
+    suche: Flugsuche,
+    settings: Settings,
+    versand: PushVersand | None = None,
+    texter: Texter | None = None,
 ) -> AsyncIOScheduler:
     """Scheduler mit genau einem Job bauen (starten muss der Aufrufer).
 
@@ -93,7 +105,7 @@ def erstelle_scheduler(
         lauf_sicher,
         trigger="interval",
         minutes=settings.pruflauf_intervall_minuten,
-        args=[suche, settings.pruflauf_max_alarme_pro_lauf, versand, settings],
+        args=[suche, settings.pruflauf_max_alarme_pro_lauf, versand, settings, texter],
         id=JOB_ID,
         max_instances=1,
         coalesce=True,
@@ -122,7 +134,17 @@ async def main() -> None:
             "verschickt. Erzeugen mit: uv run python -m scripts.vapid_schluessel"
         )
 
-    scheduler = erstelle_scheduler(client, settings, versand)
+    # Ohne Anthropic-Schlüssel formuliert der Baukasten. Auch das ist Absicht
+    # und derselbe Gedanke wie beim VAPID-Paar: Die Kernfunktion darf an
+    # keinem hinterlegten Schlüssel hängen (Leitplanke 3).
+    texter: Texter | None = ClaudeTexter(settings) if settings.claude_aktiviert else None
+    if texter is None:
+        logger.info(
+            "Kein Anthropic-Schlüssel hinterlegt — die Benachrichtigungen formuliert "
+            "der eingebaute Satz-Baukasten. Das ist voll funktionsfähig, nur weniger schön."
+        )
+
+    scheduler = erstelle_scheduler(client, settings, versand, texter)
 
     # Ohne dieses Ereignis müsste `main()` in einer Endlosschleife pollen.
     # SIGTERM kommt vom Hoster beim Deployment, SIGINT von Strg-C.
@@ -133,7 +155,7 @@ async def main() -> None:
 
     scheduler.start()
     # Einmal sofort loslegen, statt den ersten Takt abzuwarten.
-    await lauf_sicher(client, settings.pruflauf_max_alarme_pro_lauf, versand, settings)
+    await lauf_sicher(client, settings.pruflauf_max_alarme_pro_lauf, versand, settings, texter)
 
     try:
         await beenden.wait()
@@ -141,6 +163,8 @@ async def main() -> None:
         logger.info("Worker fährt herunter …")
         scheduler.shutdown(wait=False)
         await client.aclose()
+        if isinstance(texter, ClaudeTexter):
+            await texter.aclose()
         await engine.dispose()
         logger.info("Beendet.")
 

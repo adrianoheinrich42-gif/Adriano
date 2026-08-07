@@ -1,4 +1,4 @@
-# Web-Frontend (M4 + M8 + M9)
+# Web-Frontend (M4 + M8 + M9 + M10)
 
 Die Web-App: anmelden, Preisalarme ansehen, anlegen, pausieren und löschen —
 und Push-Benachrichtigungen empfangen, wenn ein Preis passt.
@@ -69,6 +69,12 @@ Angebot gemeldet wird — all das entscheidet das Backend (Leitplanke 1 in
 die er selbst macht, ist „249,99 € → 24999 Cent" — und die nur, weil das
 Eingabefeld Euro will und die API Cent.
 
+Sie **formuliert auch nichts**. Seit M10 kommt der erklärende Satz unter dem
+Preis fertig aus dem Backend (`erklaerung` in `GET /alerts/{id}/verlauf`) —
+wahlweise von Claude geschrieben oder vom eingebauten Satz-Baukasten. Bis M9
+baute `detail.js` ihn selbst zusammen; das war dieselbe Aussage an einer
+zweiten Stelle.
+
 ## Später auf dem iPhone 15 testen
 
 1. Lenovo und iPhone im **selben WLAN**.
@@ -105,3 +111,14 @@ Zwei Bedingungen, die beide erfüllt sein müssen:
    Push-Schnittstelle komplett — die App erklärt das, wenn es soweit ist.
 
 Details in `../docs/PLATTFORM-WEB.md`.
+
+## Erklärtexte von Claude (M10)
+
+Steht ein `ANTHROPIC_API_KEY` in `backend/.env`, formuliert Claude die
+Benachrichtigung und den Satz in der Detailansicht. Darunter erscheint dann
+klein „von Claude formuliert".
+
+**Ohne Schlüssel läuft alles vollständig weiter** — dann schreibt der
+eingebaute Satz-Baukasten, und der Hinweis bleibt weg. Dasselbe passiert, wenn
+der Aufruf scheitert oder Claude eine Zahl nennt, die in den berechneten Daten
+nicht vorkommt.

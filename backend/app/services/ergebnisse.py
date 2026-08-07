@@ -17,9 +17,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.flight_observation import FlightObservation
 from app.models.flight_offer import FlightOffer
+from app.models.notification_log import NotificationLog
 from app.models.price_alert import PriceAlert
 from app.schemas.ergebnis import PreisbewertungResponse, PreisverlaufResponse, VerlaufsPunkt
-from app.services.price_stats import VERGLEICHSFENSTER_TAGE, bewerte_preis, hole_vergleichspreise
+from app.services.price_stats import (
+    VERGLEICHSFENSTER_TAGE,
+    Preisbewertung,
+    bewerte_preis,
+    hole_vergleichspreise,
+)
+from app.services.push import QUELLE_BAUKASTEN, QUELLE_CLAUDE, formuliere_einordnungssatz
 
 # Mehr Angebote als das zeigt keine sinnvolle Oberfläche an, und die Liste
 # wächst mit jedem Prüflauf.
@@ -123,7 +130,7 @@ async def hole_verlauf(
     )
     aktuell: int | None = bester.scalar_one_or_none()
 
-    bewertung = None
+    bewertung: Preisbewertung | None = None
     if aktuell is not None:
         monat = alarm.earliest_departure_date.strftime("%Y-%m")
         # `bis` = Beginn des heutigen Tages: Verglichen wird gegen **bisher**,
@@ -136,6 +143,63 @@ async def hole_verlauf(
         vergleichspreise = await hole_vergleichspreise(
             session, alarm.origin, alarm.destination, monat, jetzt, bis=heute_beginn
         )
-        bewertung = PreisbewertungResponse.aus(bewerte_preis(aktuell, vergleichspreise))
+        bewertung = bewerte_preis(aktuell, vergleichspreise)
 
-    return PreisverlaufResponse(bewertung=bewertung, aktueller_preis_cents=aktuell, punkte=punkte)
+    erklaerung, quelle = (None, None)
+    if bewertung is not None:
+        erklaerung, quelle = await hole_erklaerung(session, alert_id, aktuell, bewertung, alarm)
+
+    return PreisverlaufResponse(
+        bewertung=None if bewertung is None else PreisbewertungResponse.aus(bewertung),
+        aktueller_preis_cents=aktuell,
+        punkte=punkte,
+        erklaerung=erklaerung,
+        erklaerung_quelle=quelle,
+    )
+
+
+async def hole_erklaerung(
+    session: AsyncSession,
+    alert_id: uuid.UUID,
+    preis_cents: int | None,
+    bewertung: Preisbewertung,
+    alarm: PriceAlert,
+) -> tuple[str, str]:
+    """Der erklärende Satz für die Detailansicht — und woher er stammt.
+
+    **Hier wird Claude nicht aufgerufen.** Das ist die wichtigste Entscheidung
+    dieser Funktion. Ein Aufruf je Seitenaufruf wäre bei jedem Öffnen der
+    Detailansicht bares Geld, eine Sekunde Wartezeit und — schlimmer — eine
+    Abhängigkeit im Lesepfad: Wäre Anthropic gerade nicht erreichbar, lüde die
+    Seite langsam oder gar nicht. Der Projektplan sagt dazu in Schritt ⑩
+    ausdrücklich „nie vorher, nie für jedes Suchergebnis".
+
+    Stattdessen wird der Text **wiederverwendet**, den der Prüflauf beim
+    Versenden der Benachrichtigung ohnehin schon erzeugt hat. Zwei Bedingungen:
+
+    * Er muss zu **genau diesem Preis** geschrieben worden sein. Sonst stünde
+      unter „189,50 €" womöglich ein Satz über 210 €.
+    * Er muss von **Claude** stammen. Für den Baukasten lohnt das Nachschlagen
+      nicht: Seine Push-Fassung beginnt mit dem Preis und endet mit
+      „Direktflug · LH" — auf dem Sperrbildschirm richtig, in der
+      Detailansicht überflüssig, weil Preis und Flugdaten dort ohnehin
+      danebenstehen. Dafür gibt es `formuliere_einordnungssatz()`. Genau diese
+      Doppelung ist im Browsertest aufgefallen.
+    """
+    if preis_cents is not None:
+        ergebnis = await session.execute(
+            select(NotificationLog.body)
+            .where(
+                NotificationLog.price_alert_id == alert_id,
+                NotificationLog.price_cents == preis_cents,
+                NotificationLog.text_quelle == QUELLE_CLAUDE,
+                NotificationLog.body.is_not(None),
+            )
+            .order_by(NotificationLog.sent_at.desc())
+            .limit(1)
+        )
+        text = ergebnis.scalar_one_or_none()
+        if text:
+            return text, QUELLE_CLAUDE
+
+    return formuliere_einordnungssatz(bewertung, alarm.currency), QUELLE_BAUKASTEN

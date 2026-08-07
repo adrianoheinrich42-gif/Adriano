@@ -57,7 +57,7 @@ def test_limit_wird_an_den_lauf_durchgereicht():
 
 async def test_lauf_sicher_meldet_das_ergebnis(monkeypatch: pytest.MonkeyPatch, caplog: Any):
     async def erfolgreicher_lauf(
-        suche: Any, limit: int, versand: Any, settings: Any
+        suche: Any, limit: int, versand: Any, settings: Any, texter: Any
     ) -> LaufBericht:
         import uuid
 
@@ -81,7 +81,9 @@ async def test_ausnahme_beendet_den_scheduler_nicht(monkeypatch: pytest.MonkeyPa
     verhindern. Also: Fehler ins Log, aber keine Ausnahme nach außen.
     """
 
-    async def kaputter_lauf(suche: Any, limit: int, versand: Any, settings: Any) -> LaufBericht:
+    async def kaputter_lauf(
+        suche: Any, limit: int, versand: Any, settings: Any, texter: Any
+    ) -> LaufBericht:
         raise ConnectionError("Datenbank weg")
 
     monkeypatch.setattr("app.jobs.worker.fuehre_lauf_aus", kaputter_lauf)

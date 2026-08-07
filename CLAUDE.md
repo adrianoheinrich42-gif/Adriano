@@ -68,7 +68,8 @@ backend/app/
                      pruflauf.py (M6: reine Funktionen + Orchestrierung),
                      price_stats.py (M7: Median/Abweichung + Vergleichsabfrage),
                      push.py (M8: Textbaukasten, Bremsen, Web-Push-Versand),
-                     ergebnisse.py (M9: Angebote + Preisverlauf lesen)
+                     ergebnisse.py (M9: Angebote + Preisverlauf lesen),
+                     claude.py (M10: Protokoll Texter, Prompt, Antwortprüfung)
   jobs/worker.py     M6: APScheduler-Prozess, ruft den Prüflauf im Takt auf
   alembic/           env.py (async, URL aus config), versions/ (2 Migrationen)
 backend/scripts/     amadeus_suche.py — Handsuche, vapid_schluessel.py (M8)
@@ -91,7 +92,8 @@ HANDOFF.md           aktueller Arbeitsstand (bei jeder Session aktuell halten)
 `users` (spiegelt Supabase-Auth-ID, keine Passwörter), `price_alerts` (Herzstück),
 `flight_observations` (Preisverlauf, Strecke+Monat denormalisiert für streckenweite
 Statistik), `flight_offers` (konkrete Angebote), `device_tokens` (Push-Ziel),
-`notification_logs` (Versandprotokoll + Dedupe). Spalten/Constraints im Code.
+`notification_logs` (Versandprotokoll + Dedupe + seit M10 `title`/`body`/
+`text_quelle`). Spalten/Constraints im Code.
 
 ## Coding-Regeln / Konventionen
 
@@ -238,6 +240,32 @@ Statistik), `flight_offers` (konkrete Angebote), `device_tokens` (Push-Ziel),
   `register()` kehrt zurück, solange der Worker noch „installing" ist —
   `subscribe()` scheitert dann beim **ersten** Besuch mit „no active Service
   Worker".
+- **Claude wird nur gerufen, wenn wirklich eine Push rausgeht** — nie beim
+  Suchen, nie beim Anzeigen. Die Detailansicht liest den Satz aus
+  `notification_logs`, statt ihn neu erzeugen zu lassen. Sonst hinge der
+  Lesepfad an einer fremden Schnittstelle und kostete bei jedem Öffnen Geld.
+- **Jede Zahl in Claudes Text wird gegengeprüft** (`pruefe_text` in
+  `services/claude.py`). Structured Output garantiert die *Form*, nicht die
+  *Richtigkeit*; „18 %" statt der berechneten 21 % wäre eine erfundene Zahl in
+  einer Nachricht, die wie eine Tatsache aussieht. Passt eine Zahl nicht, gilt
+  der ganze Text als verworfen und der Baukasten übernimmt. Absichtlich
+  streng — ein verworfener guter Satz kostet nichts.
+- **`erzeuge_nachricht()` wirft nie**, und das nackte `except Exception` dort
+  ist Absicht. Jede SDK-Ausnahmeklasse einzeln aufzuzählen hieße, dass die
+  eine vergessene nachts die Benachrichtigung verschluckt.
+- **Titel und Ziel-Adresse der Push kommen immer vom Baukasten**, auch wenn
+  Claude den Text schreibt. Die URL ist Technik, kein Text.
+- **In der Detailansicht wird nur ein *Claude*-Text wiederverwendet.** Der
+  Baukasten hat dort eine eigene Fassung (`formuliere_einordnungssatz`) ohne
+  Preis-Präfix und ohne „Direktflug · LH" — beides steht daneben schon.
+- **Die App legt offen, wenn Claude formuliert hat.** Wer Text von einem
+  Sprachmodell liest, soll das wissen, ohne raten zu müssen.
+- **Claude bekommt keine Nutzerdaten** — keine ID, keine E-Mail. Für „schreib
+  einen netten Satz" braucht es die nicht (`Erklaerfakten` ist die eine
+  Stelle, an der sichtbar ist, was das Modell sieht).
+- **`localhost` und `127.0.0.1` sind für den Browser zwei Herkünfte.** Beide
+  stehen in `cors_origins`; sonst meldet die App „Keine Verbindung zum
+  Server", während im Backend-Log ein 200 steht.
 - **Zwei Eigenheiten der Amadeus-API:** `maxPrice` nimmt nur ganze
   Währungseinheiten (wir runden **ab**, nie über das Nutzerlimit), und es gibt
   keinen „max. N Umstiege"-Parameter — nur `nonStop`. Der Rest wird nach dem
@@ -276,8 +304,8 @@ DB: `docker compose up -d db`. Kürzel im **Makefile** (`make help`).
   Umgebung hat oft keinen Docker-Daemon, aber Postgres ist per apt installierbar
   (`/usr/lib/postgresql/16/bin`, mit `initdb`/`pg_ctl` als User `postgres`
   starten) — so lässt sich der DB-Pfad echt testen.
-- **Ohne DB:** `pytest` meldet `167 passed, 116 skipped` (Integrationstests
-  überspringen sich selbst). Mit DB: `283 passed`. Beides ist „grün".
+- **Ohne DB:** `pytest` meldet `189 passed, 126 skipped` (Integrationstests
+  überspringen sich selbst). Mit DB: `315 passed`. Beides ist „grün".
 - **Frontend prüfen geht wirklich:** Chromium und Playwright sind vorhanden
   (`/opt/pw-browsers`, `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`, kein
   `playwright install`). Supabase lässt sich per `page.route("**/auth/v1/**")`

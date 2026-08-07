@@ -155,3 +155,13 @@ class PreisverlaufResponse(BaseModel):
     bewertung: PreisbewertungResponse | None
     aktueller_preis_cents: int | None
     punkte: list[VerlaufsPunkt]
+
+    # Der fertige deutsche Satz (M10). Bis M9 baute ihn `web/detail.js` selbst
+    # zusammen — ein Riss in Leitplanke 1, denn damit bewertete der Client.
+    # Jetzt kommt er fertig aus dem Backend, wahlweise von Claude formuliert.
+    erklaerung: str | None = None
+
+    # `claude` oder `baukasten`. Der Client zeigt das an, wenn Claude
+    # geschrieben hat — wer einen Text von einem Sprachmodell liest, soll das
+    # wissen, ohne raten zu müssen.
+    erklaerung_quelle: str | None = None

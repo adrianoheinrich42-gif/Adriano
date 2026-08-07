@@ -38,6 +38,7 @@ from app.services.amadeus import (
     Flugsuche,
     Suchanfrage,
 )
+from app.services.claude import Texter
 from app.services.price_stats import Preisbewertung, bewerte_preis, hole_vergleichspreise
 from app.services.push import MeldeErgebnis, PushVersand, melde_treffer
 
@@ -338,6 +339,7 @@ async def pruefe_alarm(
     jetzt: datetime | None = None,
     versand: PushVersand | None = None,
     settings: Settings | None = None,
+    texter: Texter | None = None,
 ) -> LaufErgebnis:
     """Ein kompletter Lauf für **einen** Alarm.
 
@@ -356,6 +358,10 @@ async def pruefe_alarm(
 
     `versand` ist optional. Ohne ihn läuft alles wie in M7, es geht nur keine
     Nachricht raus. Genau so verhalten sich die Tests der Schritte 1–5.
+
+    `texter` ist ebenfalls optional (M10). Ohne ihn formuliert der
+    deterministische Baukasten — und mit ihm auch, sobald Claude nicht
+    antwortet oder etwas Unbelegtes schreibt.
 
     Wirft nicht: Amadeus-Fehler landen im `LaufErgebnis`.
     """
@@ -456,6 +462,7 @@ async def pruefe_alarm(
             versand=versand,
             settings=settings,
             jetzt=jetzt,
+            texter=texter,
         )
 
     return LaufErgebnis(
@@ -584,6 +591,7 @@ async def pruefe_faellige_alarme(
     limit: int = 20,
     versand: PushVersand | None = None,
     settings: Settings | None = None,
+    texter: Texter | None = None,
 ) -> LaufBericht:
     """Ein kompletter Durchgang: alle fälligen Alarme der Reihe nach prüfen.
 
@@ -616,7 +624,7 @@ async def pruefe_faellige_alarme(
                 logger.info("Alarm %s ist verschwunden — übersprungen.", alarm_id)
                 continue
             bericht.ergebnisse.append(
-                await pruefe_alarm(session, alert, suche, jetzt, versand, settings)
+                await pruefe_alarm(session, alert, suche, jetzt, versand, settings, texter)
             )
         except Exception as exc:  # noqa: BLE001 — bewusst: Lauf weiterlaufen lassen
             logger.exception("Alarm %s: Lauf abgebrochen — %s", alarm_id, exc)

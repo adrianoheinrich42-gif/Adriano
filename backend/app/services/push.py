@@ -51,9 +51,14 @@ from app.models.device_token import DeviceToken
 from app.models.notification_log import NotificationLog
 from app.models.price_alert import PriceAlert
 from app.schemas.flight_offer import Flugangebot
+from app.services.claude import Texter, baue_fakten, pruefe_text
 from app.services.price_stats import Einordnung, Preisbewertung
 
 logger = logging.getLogger(__name__)
+
+# Werte der Spalte `notification_logs.text_quelle`.
+QUELLE_CLAUDE = "claude"
+QUELLE_BAUKASTEN = "baukasten"
 
 
 # ---------------------------------------------------------------------------
@@ -151,10 +156,10 @@ def formuliere_nachricht(
 ) -> Nachricht:
     """Der deterministische Satz-Baukasten.
 
-    **Hier formuliert Python, nicht Claude** (Leitplanke 3). In M10 kommt
-    Claude als *Verschönerung* dazu — und genau dieser Baukasten bleibt dann
-    der Rückfall, wenn der Anthropic-Aufruf scheitert. Die Push geht immer
-    raus, notfalls mit diesem Text.
+    **Hier formuliert Python, nicht Claude** (Leitplanke 3). Seit M10 schreibt
+    Claude den Text im Normalfall schöner — und genau dieser Baukasten ist
+    dann der Rückfall, wenn der Anthropic-Aufruf scheitert. Die Push geht
+    immer raus, notfalls mit diesem Text.
 
     Der Ton richtet sich nach der Einordnung aus M7. Wichtig ist der Fall
     `ZU_WENIG_DATEN`: Dann wird **keine Prozentzahl erfunden**, sondern
@@ -198,6 +203,91 @@ def formuliere_nachricht(
         # Tippt der Nutzer auf die Nachricht, landet er direkt bei diesem
         # Alarm — nicht auf einer Liste, in der er ihn erst suchen muss.
         url=f"/#alarm={alert.id}",
+    )
+
+
+def formuliere_einordnungssatz(bewertung: Preisbewertung, waehrung: str = "EUR") -> str:
+    """Derselbe Baukasten für die Detailansicht (M10).
+
+    Bis M9 baute `web/detail.js` diesen Satz im Browser zusammen. Das war ein
+    Riss in Leitplanke 1 („der Client bewertet nichts") und außerdem eine
+    zweite Stelle, an der dieselbe Aussage in anderen Worten stand. Jetzt
+    kommt der Satz aus dem Backend — und derselbe Text kann von Claude
+    stammen, wenn zu diesem Preis schon einmal gemeldet wurde.
+
+    Ohne Preisangabe, anders als in der Push: In der Detailansicht steht der
+    Preis bereits groß darüber.
+    """
+    if bewertung.ist_bestpreis:
+        return "Günstigster Preis, den wir für diese Strecke bisher gesehen haben."
+
+    if bewertung.einordnung is Einordnung.ZU_WENIG_DATEN:
+        return (
+            f"Für einen Vergleich fehlen noch Daten ({bewertung.datenpunkte} Beobachtungen). "
+            "Sobald genug zusammengekommen ist, siehst du hier, ob der Preis gut ist."
+        )
+
+    assert bewertung.median_cents is not None  # hat_aussage garantiert das
+    assert bewertung.abweichung_prozent is not None
+    median = _euro(bewertung.median_cents, waehrung)
+    abweichung = abs(bewertung.abweichung_prozent)
+
+    if bewertung.einordnung is Einordnung.GUENSTIG:
+        return (
+            f"{abweichung:.0f} % unter dem üblichen Preis für diese Strecke (sonst etwa {median})."
+        )
+    if bewertung.einordnung is Einordnung.TEUER:
+        return (
+            f"{abweichung:.0f} % über dem üblichen Preis (sonst etwa {median}) — "
+            "aber unter deinem Limit."
+        )
+    return f"Etwa im üblichen Rahmen für diese Strecke (Median {median})."
+
+
+async def erzeuge_nachricht(
+    alert: PriceAlert,
+    angebot: Flugangebot,
+    bewertung: Preisbewertung,
+    texter: Texter | None,
+) -> tuple[Nachricht, str]:
+    """Den Text besorgen — von Claude, sonst aus dem Baukasten.
+
+    Gibt die Nachricht und die Quelle zurück (`claude` oder `baukasten`).
+
+    **Diese Funktion wirft nicht.** Das ist ihr eigentlicher Zweck: Sie ist
+    die Stelle, an der Leitplanke 3 („fällt Claude aus, funktioniert die
+    Kernfunktion per Fallback weiter") durchgesetzt wird. Jeder denkbare
+    Fehler — kein Guthaben, falscher Schlüssel, Rate Limit, Zeitüberschreitung,
+    kaputtes JSON, erfundene Zahl — endet hier im selben Zweig: Baukasten,
+    Logzeile, weiter.
+
+    Deshalb steht hier ein nacktes `except Exception`. Sonst müsste jede
+    Ausnahmeklasse des SDK einzeln aufgezählt werden, und die eine vergessene
+    wäre genau die, die nachts um drei die Benachrichtigung verschluckt.
+
+    Titel und Ziel-Adresse übernimmt bewusst **immer** der Baukasten für den
+    Fall, dass Claude ausfällt — die URL ist Technik, kein Text, und der
+    Baukasten-Titel ist der garantierte Rückfall.
+    """
+    baukasten = formuliere_nachricht(alert, angebot, bewertung)
+    if texter is None:
+        return baukasten, QUELLE_BAUKASTEN
+
+    fakten = baue_fakten(alert, angebot, bewertung)
+    try:
+        erklaerung = await texter.erklaere(fakten)
+    except Exception as exc:  # noqa: BLE001 — siehe Docstring: absichtlich alles
+        logger.warning("Claude-Text nicht verfügbar (%s) — Baukasten übernimmt.", exc)
+        return baukasten, QUELLE_BAUKASTEN
+
+    grund = pruefe_text(erklaerung, fakten)
+    if grund is not None:
+        logger.warning("Claude-Text verworfen (%s) — Baukasten übernimmt.", grund)
+        return baukasten, QUELLE_BAUKASTEN
+
+    return (
+        Nachricht(titel=erklaerung.titel, text=erklaerung.text, url=baukasten.url),
+        QUELLE_CLAUDE,
     )
 
 
@@ -386,6 +476,7 @@ async def melde_treffer(
     versand: PushVersand,
     settings: Settings,
     jetzt: datetime | None = None,
+    texter: Texter | None = None,
 ) -> MeldeErgebnis:
     """Ein Treffer wird zur Nachricht — oder eben nicht.
 
@@ -395,9 +486,13 @@ async def melde_treffer(
     2. Zeile mit Status `pending` einfügen — `ON CONFLICT DO NOTHING`.
        **Kommt keine Zeile zurück, war das Angebot schon gemeldet.** Das ist
        die Dedupe-Mauer, und sie steht in der Datenbank, nicht hier.
-    3. Erst *danach* senden. Der Platz ist da schon belegt, ein paralleler
-       Lauf kann nicht dieselbe Nachricht verschicken.
-    4. Ergebnis nachtragen.
+    3. Erst *danach* den Text holen (M10: Claude) und senden. Beides ist
+       langsam und geht über das Netz — der Platz im UNIQUE-Index muss vorher
+       belegt sein, sonst könnte ein paralleler Lauf in dieser Lücke dieselbe
+       Nachricht ein zweites Mal verschicken.
+    4. Ergebnis und Text nachtragen.
+
+    Ohne `texter` verhält sich alles wie in M8/M9: Der Baukasten formuliert.
 
     Wirft nicht: Versandfehler landen im Protokoll und im Rückgabewert.
     """
@@ -438,7 +533,7 @@ async def melde_treffer(
     # Den Platz sofort festschreiben — vor dem langsamen Teil.
     await session.commit()
 
-    nachricht = formuliere_nachricht(alert, angebot, bewertung)
+    nachricht, quelle = await erzeuge_nachricht(alert, angebot, bewertung, texter)
     zugestellt, fehlgeschlagen, letzter_fehler, letzter_code = await _sende_an_alle_ziele(
         session, alert.user_id, nachricht, versand
     )
@@ -455,14 +550,25 @@ async def melde_treffer(
     await session.execute(
         update(NotificationLog)
         .where(NotificationLog.id == log_id)
-        .values(status=status, push_status_code=letzter_code, push_error=letzter_fehler)
+        .values(
+            status=status,
+            push_status_code=letzter_code,
+            push_error=letzter_fehler,
+            # Der Text wird auch dann festgehalten, wenn niemand ihn bekommen
+            # hat: Beim Nachforschen ist gerade die *nicht* zugestellte
+            # Nachricht die interessante.
+            title=nachricht.titel[:120],
+            body=nachricht.text[:400],
+            text_quelle=quelle,
+        )
     )
     await session.commit()
 
     logger.info(
-        "Alarm %s: Meldung %s — %d zugestellt, %d fehlgeschlagen.",
+        "Alarm %s: Meldung %s (%s) — %d zugestellt, %d fehlgeschlagen.",
         alert.id,
         status,
+        quelle,
         zugestellt,
         fehlgeschlagen,
     )

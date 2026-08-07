@@ -7,7 +7,8 @@ Zuerst `CLAUDE.md` lesen, dann diese Datei, dann `git log` / `git status`.
 Meilenstein-Commits (dazwischen liegen reine Doku-Commits):
 
 ```
-M9 — Ergebnisanzeige: Detailansicht + Deep-Link     ← neu
+M10 — Claude formuliert die Benachrichtigungstexte  ← neu
+09029bc M9 — Ergebnisanzeige: Detailansicht + Deep-Link
 46005f3 M8 — Push-Benachrichtigungen (Web-Push, PWA)
 b08b5c4 M4 — Web-Client: Anmeldung, Alarmliste, Formular
 02306d3 M7 — Preisstatistik (+ maxPrice-Verzerrung behoben)
@@ -22,11 +23,12 @@ def9ae6 M0 — Projektgerüst
 
 ## Wo wir stehen
 
-**M0–M9 fertig.** Der Nutzer kann sich anmelden, Alarme anlegen, bekommt eine
-Push, wenn ein Preis passt — und sieht nach dem Tippen darauf **direkt die
-Detailansicht** mit Einordnung, Preisverlauf und den gefundenen Flügen.
+**M0–M10 fertig.** Der Nutzer kann sich anmelden, Alarme anlegen, bekommt eine
+Push, wenn ein Preis passt — **von Claude formuliert** — und sieht nach dem
+Tippen darauf direkt die Detailansicht mit Einordnung, Preisverlauf und den
+gefundenen Flügen.
 
-**Noch 3 Meilensteine: M10–M12.** Claude-Texte, Freitext-Eingabe, Deployment.
+**Noch 2 Meilensteine: M11 und M12.** Freitext-Eingabe, Deployment.
 
 Endpunkte: `GET /health` · `GET /me` · `POST/GET/PATCH/DELETE /alerts` ·
 `GET /alerts/{id}/offers` · `GET /alerts/{id}/verlauf` · `GET /offers/{id}` ·
@@ -48,6 +50,11 @@ Keins davon blockiert die Entwicklung, alle drei den echten Betrieb:
    (der Worker sagt das beim Start deutlich).
 3. **Amadeus-Zugang** → Konto auf `developers.amadeus.com`,
    `AMADEUS_CLIENT_ID` / `AMADEUS_CLIENT_SECRET` in `backend/.env`.
+4. **Anthropic-Schlüssel** (optional) → Konto auf `console.anthropic.com`,
+   Guthaben aufladen, `ANTHROPIC_API_KEY` in `backend/.env`. **Ohne den
+   Schlüssel läuft alles vollständig weiter** — die Benachrichtigungen
+   formuliert dann der eingebaute Satz-Baukasten. Rechnen musst du mit rund
+   0,1 Cent je verschickter Nachricht.
 
 ## Was umgesetzt ist
 
@@ -62,9 +69,60 @@ Keins davon blockiert die Entwicklung, alle drei den echten Betrieb:
 - **M7** — `services/price_stats.py`; Einordnung hängt im `LaufErgebnis`.
 - **M8** — Web-Push: `services/push.py`, `api/routes/push.py`, PWA
   (`manifest.json`, `sw.js`, `push.js`, Icons), Migration `22e16687014f`.
-- **M9** — siehe nächster Abschnitt.
+- **M9** — `services/ergebnisse.py`, `schemas/ergebnis.py`, `web/detail.js`.
+- **M10** — siehe nächster Abschnitt.
 
-## Zuletzt geändert — M9 (Ergebnisanzeige)
+## Zuletzt geändert — M10 (Claude formuliert die Texte)
+
+Bis M9 schrieb ein Satz-Baukasten in Python die Benachrichtigungen. Der bleibt
+— aber im Normalfall formuliert jetzt Claude.
+
+**Leitplanke 3, wörtlich umgesetzt:** Claude *entscheidet* nichts. Ob ein Preis
+gut ist, hat `price_stats.py` ausgerechnet; Claude bekommt die fertigen Zahlen
+und macht daraus einen freundlichen deutschen Satz. Fällt er aus, greift der
+Baukasten und die Push geht trotzdem raus.
+
+**Neu:** `services/claude.py` (Protokoll `Texter`, `ClaudeTexter` mit
+Structured Output, Prompt-Bau, Antwortprüfung), `anthropic`-Abhängigkeit,
+Anthropic-Einstellungen in `config.py`, Migration `4b42be3a6b6e`.
+
+**Geändert:** `push.py` (`erzeuge_nachricht()`, `formuliere_einordnungssatz()`,
+`melde_treffer(..., texter=…)`), `pruflauf.py` und `worker.py` reichen den
+`Texter` durch, `ergebnisse.py` liefert den fertigen Satz an die
+Detailansicht, `web/detail.js` baut ihn nicht mehr selbst.
+
+**Datenmodell:** `notification_logs` bekam `title`, `body` und `text_quelle`
+(`claude` | `baukasten`). Das Protokoll hielt bisher nur fest, *dass* gemeldet
+wurde, nicht was dort stand.
+
+### Entscheidungen aus M10
+
+- **Claude wird nur aufgerufen, wenn wirklich eine Push rausgeht.** Nie beim
+  Suchen, nie beim Anzeigen. Die Detailansicht liest den Satz aus dem
+  Protokoll, statt ihn neu erzeugen zu lassen — sonst hinge der Lesepfad an
+  einer fremden Schnittstelle und kostete bei jedem Öffnen Geld.
+- **Jede Zahl im erzeugten Text wird gegengeprüft** (`pruefe_text()`).
+  Structured Output garantiert die *Form*, nicht die *Richtigkeit*; „18 %"
+  statt der berechneten 21 % wäre eine erfundene Zahl in einer Nachricht, die
+  wie eine Tatsache aussieht. Passt eine Zahl nicht, gilt der ganze Text als
+  verworfen. Bewusst streng: Ein verworfener guter Satz kostet nichts.
+- **`erzeuge_nachricht()` wirft nie** — ein nacktes `except Exception` ist hier
+  genau richtig. Sonst müsste jede Ausnahmeklasse des SDK aufgezählt werden,
+  und die eine vergessene wäre die, die nachts die Benachrichtigung verschluckt.
+- **Titel und Ziel-Adresse kommen immer vom Baukasten.** Die URL ist Technik,
+  kein Text.
+- **Nur ein *Claude*-Text wird in der Detailansicht wiederverwendet.** Der
+  Baukasten hat für diese Ansicht eine eigene Fassung
+  (`formuliere_einordnungssatz()`) ohne Preis-Präfix und ohne
+  „Direktflug · LH" — beides steht dort schon daneben.
+- **Die App legt offen, wenn Claude geschrieben hat** („von Claude
+  formuliert"). Wer Text von einem Sprachmodell liest, soll das wissen.
+- **`web/detail.js` baut keinen Bewertungssatz mehr.** Das war ein Riss in
+  Leitplanke 1 und eine zweite Stelle mit derselben Aussage in anderen Worten.
+- **Claude sieht keine Nutzerdaten** — keine ID, keine E-Mail. Für „schreib
+  einen netten Satz" braucht es die nicht; ein Test hält das fest.
+
+## Davor geändert — M9 (Ergebnisanzeige)
 
 Die Bewertung aus M7 steckte bis jetzt nur im Log und in der Push-Nachricht.
 Ab hier ist sie sichtbar.
@@ -168,8 +226,40 @@ Ausführlich in `CLAUDE.md`; die Merksätze:
 
 ## Verifizierter Zustand (real nachgeprüft, nicht behauptet)
 
-- **Backend-Tests:** mit DB `283 passed`; ohne DB `167 passed, 116 skipped`.
-  `ruff` und `mypy app` (strict) sauber. **Diese Zahlen sind der Soll-Wert.**
+- **Backend-Tests:** mit DB `315 passed`; ohne DB `189 passed, 126 skipped`.
+  `ruff` und `mypy app` (strict) sauber, `alembic check` ohne Drift.
+  **Diese Zahlen sind der Soll-Wert.**
+- **M10 im echten Chromium gegen das echte Backend — 9 Schritte:** Zwei Alarme
+  nebeneinander, einmal antwortet Claude, einmal fällt er aus.
+  1. Beide Alarme angelegt und geprüft (Attrappen für Suche, Versand, Claude)
+  2. Angemeldet, beide in der Liste
+  3. Detailansicht zeigt **Claudes** Satz („24 % unter dem üblichen Preis von
+     250 € — ein guter Moment zum Buchen.")
+  4. Herkunftshinweis „von Claude formuliert" sichtbar
+  5. Die deterministische Einordnung („günstig", 189,50 €) steht unverändert
+     daneben — Claude hat sie nicht angefasst
+  6. Beim Ausfall steht der Baukasten-Satz da, mit Median und ohne
+     Sperrbildschirm-Anhang
+  7. Dort **kein** Herkunftshinweis — er lügt nicht
+  8. `GET /alerts/{id}/verlauf` liefert Satz *und* Quelle fertig aus
+  9. `detail.js` enthält nachweislich keinen selbst gebauten Satz mehr
+
+  Keine JavaScript-Fehler. **Kein Test ging ins Netz** — auch der Fall
+  „falscher API-Schlüssel" nicht: Dafür bekommt der echte `ClaudeTexter` einen
+  `httpx.MockTransport` untergeschoben, der eine echte 401 der Anthropic-API
+  nachstellt (`tests/test_claude.py`).
+- **Dabei gefunden und behoben:**
+  * **CORS ließ nur `http://localhost:3000` zu, nicht `http://127.0.0.1:3000`.**
+    Für den Browser sind das zwei Herkünfte. Wer die App über die andere
+    Schreibweise öffnet, sieht „Keine Verbindung zum Server", obwohl im
+    Backend-Log ein 200 steht. Beide stehen jetzt in `cors_origins`.
+  * Die Detailansicht übernahm auch den **Baukasten**-Text der Push — der
+    beginnt mit dem Preis und endet mit „Direktflug · LH", was dort schon
+    daneben steht. Jetzt wird nur ein Claude-Text wiederverwendet.
+  * Ein Test schlug fehl, **weil die Zahlenprüfung funktionierte**: Der echte
+    Prüflauf rechnet seine eigene Bewertung aus, mein fest verdrahteter
+    Claude-Text nannte eine dazu nicht passende Prozentzahl — und wurde
+    korrekt verworfen.
 - **M9 im echten Chromium gegen das echte Backend — 12 Schritte:** Liste →
   Klick auf die Strecke → Detailansicht; Bewertung „199,00 € · Bestpreis";
   Preisverlauf als SVG mit 13 Tagespunkten; Angebote günstigste zuerst;
@@ -270,7 +360,7 @@ Ausführlich in `CLAUDE.md`; die Merksätze:
 
 ## Exakter Arbeitspunkt
 
-M9 abgeschlossen, committet und gepusht. Nichts ist halbfertig.
+M10 abgeschlossen, committet und gepusht. Nichts ist halbfertig.
 
 ## Nächste Schritte — Empfehlung: M12 (Deployment)
 
@@ -288,9 +378,27 @@ Kleinster Weg dahin:
 4. Auf dem iPhone „Zum Home-Bildschirm hinzufügen", Benachrichtigungen
    einschalten, Alarm mit hohem Limit anlegen → es sollte klingeln.
 
-**Alternative: M10 (Claude-Texte).** Der deterministische Satz-Baukasten in
-`formuliere_nachricht()` bleibt der Rückfall; Claude formuliert denselben
-Inhalt nur schöner. Braucht einen `ANTHROPIC_API_KEY`. Wichtig dabei:
-Scheitert der Aufruf, muss die Push trotzdem rausgehen — Leitplanke 3.
+**Alternative: M11 (Freitext-Eingabe).** „Im Oktober für zwei Wochen nach
+Lissabon, höchstens 250 €" → Structured Output → **vorausgefülltes Formular,
+das der Nutzer bestätigen muss**. Die Hälfte der Arbeit steht schon:
+`services/claude.py` hat den Client, das Protokoll und das Fehlermuster; neu
+sind ein zweites Pydantic-Schema, ein zweiter Prompt und die
+Plausibilitätsprüfung (Datum in der Zukunft? IATA-Code echt?). Wichtig laut
+Projektplan 8.8: **Kein Alarm entsteht direkt aus Claudes Ausgabe.**
 
-Danach: M11 (Freitext-Eingabe).
+Was M10 dafür hinterlässt: Der Aufruf schlägt bei M11 im Anfrage-Pfad zu,
+nicht im Worker — dort ist das Zeitlimit von 8 Sekunden zu großzügig, und der
+Fallback ist kein Textbaustein, sondern das leere Formular mit einem
+ehrlichen Hinweis.
+
+### Noch nicht überprüft
+
+**Claude hat in diesem Projekt noch nie wirklich geantwortet.** Alle Tests
+laufen gegen Attrappen und einen `MockTransport`; ein `ANTHROPIC_API_KEY`
+liegt nicht vor. Geprüft ist damit die gesamte Verdrahtung und jeder
+Fehlerpfad — offen ist die Textqualität: Hält sich Haiku 4.5 an den Ton, und
+wie oft verwirft `pruefe_text()` zu Recht oder zu Unrecht? Erster Schritt mit
+Schlüssel: `make worker` starten, einen Alarm melden lassen, `SELECT title,
+body, text_quelle FROM notification_logs ORDER BY sent_at DESC LIMIT 5;`.
+Steht dort dauerhaft `baukasten`, greift der Fallback still — dann ins
+Worker-Log sehen, dort steht der Grund.

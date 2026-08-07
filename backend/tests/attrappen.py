@@ -22,6 +22,7 @@ from app.services.amadeus import (
     filtere_nach_umstiegen,
     normalisiere_antwort,
 )
+from app.services.claude import Erklaerfakten, Erklaertext
 from app.services.push import Nachricht
 
 FIXTURE = Path(__file__).parent / "fixtures" / "amadeus_flight_offers_muc_bcn.json"
@@ -174,6 +175,37 @@ class PushVersandAttrappe:
     @property
     def anzahl(self) -> int:
         return len(self.gesendet)
+
+
+class TexterAttrappe:
+    """Verhält sich wie Claude, redet aber mit niemandem.
+
+    Die wichtigste Testhilfe für M10 ist nicht der Erfolgsfall, sondern
+    `fehler`: Damit lässt sich der Ausfall des Anthropic-Aufrufs nachstellen
+    und belegen, dass die Benachrichtigung **trotzdem** rausgeht — Leitplanke 3
+    („fällt Claude aus, funktioniert die Kernfunktion per Fallback weiter").
+
+    Merkt sich alle Anfragen (`self.fakten`), damit prüfbar ist, *was* Claude
+    zu sehen bekommt — insbesondere, dass keine Nutzerdaten dabei sind.
+    """
+
+    def __init__(
+        self,
+        antwort: Erklaertext | None = None,
+        fehler: Exception | None = None,
+    ) -> None:
+        self.antwort = antwort or Erklaertext(
+            titel="MUC → BCN für 189,50 €",
+            text="Ein guter Fund: 189,50 € liegen deutlich unter deinem Limit.",
+        )
+        self._fehler = fehler
+        self.fakten: list[Erklaerfakten] = []
+
+    async def erklaere(self, fakten: Erklaerfakten) -> Erklaertext:
+        self.fakten.append(fakten)
+        if self._fehler is not None:
+            raise self._fehler
+        return self.antwort
 
 
 # Ein echt aussehender Schlüssel (65 Byte base64url) — nur als Testdatum.

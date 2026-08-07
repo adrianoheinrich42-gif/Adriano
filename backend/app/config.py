@@ -96,10 +96,43 @@ class Settings(BaseSettings):
         """Ohne Schlüsselpaar läuft alles weiter — nur eben ohne Versand."""
         return bool(self.vapid_public_key and self.vapid_private_key)
 
+    # --- Claude / Anthropic (M10) ----------------------------------------
+    # Schlüssel von console.anthropic.com. Er steht ausschließlich hier in
+    # der Umgebung, nie im Repository und nie im Browser (Leitplanke 2).
+    anthropic_api_key: str = ""
+
+    # Projektentscheidung: das günstigste Modell reicht. Beide Claude-
+    # Aufgaben (kurzer Erklärtext, später Sprache → Suchkriterien) sind
+    # einfach und gut abgegrenzt. Erst messen, dann größer werden.
+    anthropic_model: str = "claude-haiku-4-5"
+
+    # Der Text ist Beiwerk und darf den Prüflauf nicht aufhalten. Nach
+    # dieser Zeit greift der deterministische Baukasten.
+    anthropic_timeout_seconds: float = 8.0
+
+    # Ein einziger Wiederholungsversuch. Mehr würde die Wartezeit
+    # vervielfachen, um einen Satz zu retten, den wir auch selbst schreiben
+    # können.
+    anthropic_max_retries: int = 1
+
+    # Titel und Text zusammen sind gut 60 Token. 300 lässt Luft und
+    # begrenzt zugleich, was ein Ausrutscher kosten kann.
+    anthropic_max_tokens: int = 300
+
+    @property
+    def claude_aktiviert(self) -> bool:
+        """Ohne Schlüssel formuliert der Baukasten — die App läuft vollständig."""
+        return bool(self.anthropic_api_key)
+
     # --- CORS ------------------------------------------------------------
-    # Für die iOS-App irrelevant (native Apps kennen keine CORS-Regel),
-    # aber nützlich, falls du das Backend im Browser testest.
-    cors_origins: list[str] = ["http://localhost:3000"]
+    # Welche Herkunft darf der Browser haben, wenn er das Backend anspricht?
+    #
+    # `localhost` und `127.0.0.1` sind **derselbe Rechner, aber für den
+    # Browser zwei verschiedene Herkünfte**. Wer die App über die eine Adresse
+    # öffnet und nur die andere freigegeben hat, bekommt „Keine Verbindung zum
+    # Server" — obwohl das Backend läuft und im Log ein 200 steht. Genau das
+    # ist beim Browsertest passiert, deshalb stehen beide hier.
+    cors_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
 
 
 @lru_cache

@@ -168,5 +168,10 @@ der niemals in den Browser gehört. Ausführlich kommentiert in `web/auth.js`.
   auflösen, ein Anker dagegen schon. Der Preisverlauf ist selbst gezeichnetes
   SVG — eine Diagramm-Bibliothek wäre die erste externe Abhängigkeit im
   Frontend gewesen.
+- **M10** — Die Erklärtexte kommen jetzt aus dem Backend statt aus
+  `detail.js`. Der Client-Anteil dieses Meilensteins ist damit ein *Rückbau*:
+  Der Satz unter dem Preis wurde bis M9 im Browser zusammengesetzt, was
+  Leitplanke 1 widersprach. Neu ist nur eine kleine Fußzeile „von Claude
+  formuliert", damit erkennbar bleibt, wer geschrieben hat.
 - Der alte `ios/`-Ordner wurde entfernt; er liegt weiterhin in der
   Git-Historie (Commit `def9ae6`), falls je ein Blick nötig ist.

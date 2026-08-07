@@ -85,6 +85,23 @@ class NotificationLog(Base):
     push_status_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
     push_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # Was tatsächlich auf dem Sperrbildschirm stand (M10). Bis dahin hielt das
+    # Protokoll nur fest, *dass* gemeldet wurde — beim Nachvollziehen einer
+    # Beschwerde („da stand ein falscher Preis") half das nicht weiter.
+    #
+    # `nullable`, weil die Zeile im Zustand `pending` zuerst nur den Platz im
+    # UNIQUE-Index belegt. Der Text entsteht erst danach; ihn vorher zu
+    # verlangen hieße, den langsamen Claude-Aufruf vor die Schutzmauer zu
+    # ziehen.
+    title: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    body: Mapped[str | None] = mapped_column(String(400), nullable=True)
+
+    # `claude` oder `baukasten` — wer den Text geschrieben hat. Ohne diese
+    # Spalte ließe sich hinterher nicht mehr erkennen, ob der Fallback greift;
+    # ein stillschweigend dauerhaft ausgefallener Claude-Aufruf sähe von außen
+    # aus wie ein etwas hölzerner Schreibstil.
+    text_quelle: Mapped[str | None] = mapped_column(String(16), nullable=True)
+
     user: Mapped["User"] = relationship()
 
     __table_args__ = (
@@ -93,6 +110,10 @@ class NotificationLog(Base):
             name="ck_notifications_status",
         ),
         CheckConstraint("price_cents > 0", name="ck_notifications_price_positive"),
+        CheckConstraint(
+            "text_quelle IS NULL OR text_quelle IN ('claude', 'baukasten')",
+            name="ck_notifications_text_quelle",
+        ),
         # Für die Abkühlphase: "wann wurde für diesen Alarm zuletzt gemeldet?"
         Index("ix_notifications_alert_time", "price_alert_id", "sent_at"),
     )
