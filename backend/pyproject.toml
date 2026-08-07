@@ -17,6 +17,9 @@ dependencies = [
     # JWT-Prüfung der Supabase-Token (M2). Reicht für HS256; für die
     # asymmetrische Variante (RS256/ES256) käme "pyjwt[crypto]" dazu.
     "pyjwt>=2.9",
+    # HTTP-Client für Amadeus (M5). Stand vorher nur in der dev-Gruppe
+    # (für den Testclient) — jetzt braucht ihn der Anwendungscode selbst.
+    "httpx>=0.27",
 ]
 
 [dependency-groups]

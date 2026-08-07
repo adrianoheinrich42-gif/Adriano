@@ -46,6 +46,17 @@ class Settings(BaseSettings):
     # Supabase setzt für eingeloggte Nutzer immer `aud: "authenticated"`.
     supabase_jwt_audience: str = "authenticated"
 
+    # --- Amadeus (M5) ----------------------------------------------------
+    # Self-Service-Zugang von developers.amadeus.com. Die Test-Umgebung
+    # liefert echte Antwortstrukturen, aber nur einen Ausschnitt der Daten
+    # und veraltete Preise — zum Entwickeln reicht das.
+    amadeus_client_id: str = ""
+    amadeus_client_secret: str = ""
+    amadeus_base_url: str = "https://test.api.amadeus.com"
+
+    # Lieber früh abbrechen als den Prüflauf blockieren.
+    amadeus_timeout_seconds: float = 15.0
+
     # --- CORS ------------------------------------------------------------
     # Für die iOS-App irrelevant (native Apps kennen keine CORS-Regel),
     # aber nützlich, falls du das Backend im Browser testest.

@@ -35,6 +35,9 @@ dev:  ## API lokal mit Auto-Reload starten (Postgres muss laufen)
 web:  ## Web-Frontend ausliefern (http://localhost:3000)
 	cd web && python3 -m http.server 3000
 
+suche:  ## Einmalige Amadeus-Suche: make suche a="MUC BCN 2026-09-06 --rueckflug 2026-09-13"
+	cd backend && uv run python -m scripts.amadeus_suche $(a)
+
 test:  ## Tests ausführen
 	cd backend && uv run pytest -q
 
