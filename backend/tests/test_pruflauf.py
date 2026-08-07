@@ -49,8 +49,20 @@ def test_suchanfrage_uebernimmt_strecke_und_bedingungen():
     assert anfrage.destination == "LIS"
     assert anfrage.adults == 3
     assert anfrage.max_stops == 0
-    assert anfrage.max_price_cents == 19900
     assert anfrage.waehrung == "EUR"
+
+
+def test_preislimit_wird_nicht_an_amadeus_geschickt():
+    """Sonst wäre der Preisverlauf abgeschnitten und der Median zu niedrig.
+
+    Mit `maxPrice` liefert Amadeus an teuren Tagen gar nichts — die
+    Beobachtung bekäme `min_price_cents = NULL` statt „der günstigste war
+    380 €". Die Statistik sähe dann nur die guten Tage. Gefiltert wird
+    deshalb erst lokal in `_angebot_als_zeile`.
+    """
+    anfrage = alarm_zu_suchanfragen(baue_alarm(max_price_cents=19900))[0]
+
+    assert anfrage.max_price_cents is None
 
 
 def test_hinflug_ist_der_frueheste_erlaubte_tag():

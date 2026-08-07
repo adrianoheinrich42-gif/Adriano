@@ -64,7 +64,8 @@ backend/app/
   models/            6 SQLAlchemy-Tabellen (+ mixins.py, __init__ importiert alle)
   schemas/           price_alert.py (API-Ein/Ausgabe), flight_offer.py (intern)
   services/          users.py, price_alerts.py, amadeus.py (Client + Normalisierung),
-                     pruflauf.py (M6: reine Funktionen + Orchestrierung)
+                     pruflauf.py (M6: reine Funktionen + Orchestrierung),
+                     price_stats.py (M7: Median/Abweichung + Vergleichsabfrage)
   jobs/worker.py     M6: APScheduler-Prozess, ruft den Prüflauf im Takt auf
   alembic/           env.py (async, URL aus config), versions/ (1 Migration)
 backend/scripts/     amadeus_suche.py — Handsuche (uv run python -m scripts.…)
@@ -159,6 +160,25 @@ Statistik), `flight_offers` (konkrete Angebote), `device_tokens` (Push-Ziel),
 - **Kein `FOR UPDATE SKIP LOCKED` in `finde_faellige_alarme`** — es läuft
   genau eine Worker-Instanz (siehe APScheduler-Entscheidung oben). Kämen zwei
   dazu, gehört die Sperre in genau diese eine Abfrage.
+- **Amadeus bekommt das Preislimit des Nutzers NICHT mit** (kein `maxPrice`).
+  Sonst lieferte die API an teuren Tagen nichts, die Beobachtung bekäme
+  `min_price_cents = NULL`, und der Median in M7 sähe nur die guten Tage.
+  Gefiltert wird ausschließlich lokal in `_angebot_als_zeile()`. Kostet keine
+  zusätzliche Anfrage — Amadeus sortiert nach Preis, `max_ergebnisse`
+  schneidet also die teuersten ab.
+- **Median statt Durchschnitt** (`price_stats.py`): Ein einzelner
+  Business-Class-Tarif zöge den Durchschnitt um Hunderte Euro hoch. Nur der
+  Median beschreibt, was man üblicherweise zahlt.
+- **Unter 10 Datenpunkten gibt es keine Prozentaussage**, sondern
+  `ZU_WENIG_DATEN` — dann sagt die App „erster Treffer unter deinem Limit".
+  Ehrlichkeit schlägt Scheingenauigkeit. `median_cents` und
+  `abweichung_prozent` sind in dem Fall `None`, damit niemand versehentlich
+  eine 0 anzeigt.
+- **Die Statistik vergleicht einen Lauf nicht gegen sich selbst.** Die
+  Vergleichspreise werden geholt, *bevor* die eigene Beobachtung geschrieben
+  wird — sonst steckt der heutige Preis im Median, gegen den er gemessen wird.
+- **Nur `search_ok = true` und `min_price_cents IS NOT NULL` zählen.** Ein
+  API-Ausfall darf nicht als „an dem Tag war nichts zu holen" gelesen werden.
 - **Zwei Eigenheiten der Amadeus-API:** `maxPrice` nimmt nur ganze
   Währungseinheiten (wir runden **ab**, nie über das Nutzerlimit), und es gibt
   keinen „max. N Umstiege"-Parameter — nur `nonStop`. Der Rest wird nach dem
@@ -197,8 +217,8 @@ DB: `docker compose up -d db`. Kürzel im **Makefile** (`make help`).
   Umgebung hat oft keinen Docker-Daemon, aber Postgres ist per apt installierbar
   (`/usr/lib/postgresql/16/bin`, mit `initdb`/`pg_ctl` als User `postgres`
   starten) — so lässt sich der DB-Pfad echt testen.
-- **Ohne DB:** `pytest` meldet `115 passed, 53 skipped` (Integrationstests
-  überspringen sich selbst). Mit DB: `168 passed`. Beides ist „grün".
+- **Ohne DB:** `pytest` meldet `142 passed, 66 skipped` (Integrationstests
+  überspringen sich selbst). Mit DB: `208 passed`. Beides ist „grün".
 - **Branch:** der in der Session vorgegebene Entwicklungs-Branch (zuletzt
   `claude/project-handoff-continuation-9lcu5l`, davor
   `claude/project-handoff-continuation-3tzcq4` und

@@ -7,7 +7,8 @@ Zuerst `CLAUDE.md` lesen, dann diese Datei, dann `git log` / `git status`.
 Meilenstein-Commits (dazwischen liegen reine Doku-Commits):
 
 ```
-M6 — Prüflauf: Alarme und Flugsuche verbunden   ← neu in dieser Session
+M7 — Preisstatistik (+ maxPrice-Verzerrung behoben)   ← neu
+6f08a1a M6 — Prüflauf: Alarme und Flugsuche verbunden
 db30665 M5 — Amadeus-Anbindung
 68a2125 M3 — CRUD für Preisalarme
 9a5aefa M2 — Auth-Kette mit Supabase-JWT
@@ -16,22 +17,20 @@ ef9189a M1 — Datenbankmodell und erste Migration
 def9ae6 M0 — Projektgerüst
 ```
 
-> **Achtung, Branch-Wechsel.** Die vorherige Session lief auf
-> `claude/project-handoff-continuation-3tzcq4`; dieser Branch ist der direkte
-> Nachfolger und enthält dessen komplette Historie. Es gibt keinen zweiten
-> Entwicklungsstrang.
-
 ## Wo wir stehen
 
-**M0–M3, M5 und M6 fertig** (Setup · Datenmodell · Auth · Alarm-CRUD ·
-Amadeus-Anbindung · Prüflauf), dazu der Plattformwechsel iOS → Web.
+**M0–M3, M5, M6 und M7 fertig.** Das Backend kann alles, was die Kernfunktion
+braucht: Alarme verwalten, zeitgesteuert bei Amadeus suchen, Preisverlauf
+aufzeichnen und ein Angebot gegen die Streckenhistorie einordnen.
 
-Damit ist zum ersten Mal die **Kernfunktion vollständig**: Ein Nutzer legt
-einen Alarm an, und das Backend prüft ihn von selbst regelmäßig bei Amadeus
-und speichert Preisverlauf und passende Angebote. Was noch fehlt, ist die
-Benachrichtigung (M8) und ein Client, der mehr zeigt als den Serverstatus (M4).
+**⚠️ M4 ist NICHT fertig** — das war in einer früheren Übergabe missverständlich.
+`web/` enthält nur den M0-Spiegel: 104 Zeilen `app.js`, die `/health` abfragen
+und den Serverstatus anzeigen. **Kein** Supabase-Login, **kein**
+`Authorization: Bearer`, **keine** Alarmliste, **kein** Formular. Real geprüft
+per `grep` über `web/` — die einzigen Treffer für „Alarm"/„anmelden" sind ein
+Kommentar und ein vorbereiteter Fehlertext.
 
-**Noch 7 Meilensteine bis „fertig": M4, M7–M12.**
+**Noch 6 Meilensteine bis „fertig": M4, M8–M12.**
 
 Endpunkte: `GET /health` · `GET /me` · `POST/GET/PATCH/DELETE /alerts`.
 Prozesse: API (`app.main:app`) **und** Worker (`app.jobs.worker`).
@@ -41,124 +40,119 @@ Meilenstein-Übersicht: `docs/PROJEKTPLAN.md` §5; für Client/Push gilt
 
 ## Was umgesetzt ist
 
-- **M0** — FastAPI, `GET /health` (prüft DB, antwortet immer HTTP 200),
-  `config.py`, `db.py`; `docker-compose.yml` (Postgres 16), `Dockerfile`,
-  `Makefile` (`make help`), `.env.example`.
+- **M0** — FastAPI, `GET /health`, `config.py`, `db.py`; `docker-compose.yml`
+  (Postgres 16, API, Worker), `Dockerfile`, `Makefile`, `.env.example`.
 - **M1** — 6 Tabellen in `app/models/`, eine Alembic-Migration
   (`…6513957c2dba_initial_schema.py`). 16 Integrationstests auf die
-  DB-Zusicherungen (CHECKs, Kaskade, Dedupe).
-- **M2** — `core/security.py` (JWT HS256), `api/deps.py`, `services/users.py`
-  (Upsert), `GET /me`.
+  DB-Zusicherungen.
+- **M2** — `core/security.py` (JWT HS256), `api/deps.py`, `services/users.py`,
+  `GET /me`.
 - **M3** — `schemas/price_alert.py`, `services/price_alerts.py`,
   `api/routes/price_alerts.py`.
 - **M5** — `services/amadeus.py` (Client + reine Normalisierung),
   `schemas/flight_offer.py`, `scripts/amadeus_suche.py`, Fixture.
-- **M6** — siehe nächster Abschnitt.
-- **Plattformwechsel** — `web/`, `docs/PLATTFORM-WEB.md`; `ios/` entfernt
-  (in der Historie, Commit `def9ae6`).
+- **M6** — `services/pruflauf.py`, `jobs/worker.py` (APScheduler),
+  `tests/attrappen.py`.
+- **M7** — siehe nächster Abschnitt.
+- **Plattformwechsel** — `web/`, `docs/PLATTFORM-WEB.md`; `ios/` entfernt.
 
-## Zuletzt geändert — M6 (Prüflauf)
+## Zuletzt geändert — M7 (Preisstatistik)
 
-- **`app/services/pruflauf.py`** — der Meilenstein. Zwei Hälften wie in
-  `amadeus.py`:
-  - *rein:* `alarm_zu_suchanfragen()` (→ **Liste**), `ist_faellig()`,
-    `ortszeit_als_utc()`, `bilde_offer_hash()`, `_angebot_als_zeile()`.
-  - *mit DB:* `finde_faellige_alarme()`, `pruefe_alarm()` (ein Alarm),
-    `pruefe_faellige_alarme()` (ein Durchgang), Ergebnistypen `LaufErgebnis`
-    und `LaufBericht`.
-  Die Suche kommt als Protokoll `Flugsuche` herein — deshalb braucht kein Test
-  Amadeus-Zugangsdaten und **kein Test geht ins Netz**.
-- **`app/jobs/worker.py`** — zweiter Prozess, APScheduler. `lauf_sicher()`
-  fängt garantiert alles ab: Eine Ausnahme im Job darf den Scheduler nie
-  beenden. `max_instances=1` (keine Parallelläufe), `coalesce=True` (verpasste
-  Takte werden nicht nachgeholt). Startet sofort einen ersten Lauf und fährt
-  auf SIGINT/SIGTERM sauber herunter.
-- **`tests/attrappen.py`** — `FlugsucheAttrappe` (merkt sich alle Anfragen,
-  filtert wie der echte Client nach Umstiegen) plus `baue_alarm()`,
-  `baue_angebot()`, `baue_segment()`, `lade_fixture_angebote()`.
-- **Tests:** `tests/test_pruflauf.py` (29, ohne DB), `tests/test_worker.py`
-  (6, ohne DB), `tests/integration/test_pruflauf.py` (21, mit DB).
-- Geändert: `config.py` + `.env.example` (Worker-Block), `pyproject.toml`
-  (`apscheduler`; mypy-Ausnahme, weil APScheduler keine Typen mitliefert),
-  `Makefile` (`make worker`), `docker-compose.yml` (Dienst `worker`),
-  `backend/README.md` (Struktur war veraltet).
+**Zuerst die bekannte Verzerrung behoben.** `alarm_zu_suchanfragen()` schickte
+das Preislimit des Nutzers als `maxPrice` an Amadeus. Dadurch lieferte die API
+an teuren Tagen gar nichts und die Beobachtung bekam `min_price_cents = NULL`
+statt „der günstigste war 380 €" — der Median hätte nur die guten Tage gesehen.
+Das Limit wird jetzt **nicht mehr** mitgeschickt; gefiltert wird ausschließlich
+lokal in `_angebot_als_zeile()`. Kostet keine zusätzliche Anfrage.
 
-**Keine Migration nötig** — M6 nutzt nur bestehende Tabellen. `alembic check`
-meldet keinen Drift.
+**Neu: `app/services/price_stats.py`** — zwei Hälften wie gewohnt:
 
-### Entscheidungen aus M6
+- *rein:* `median_cents()`, `abweichung_prozent()`, `bewerte_preis()`,
+  Typen `Einordnung` (`zu_wenig_daten` / `guenstig` / `normal` / `teuer`) und
+  `Preisbewertung` (mit `hat_aussage` und `ist_bestpreis`).
+- *mit DB:* `hole_vergleichspreise()` (gleiche Strecke, gleicher Reisemonat,
+  90 Tage, über **alle** Nutzer), `bewerte_angebot()`.
+
+**In den Prüflauf eingehängt:** `LaufErgebnis` hat jetzt ein Feld `bewertung`.
+`pruefe_alarm()` ordnet den **besten Treffer** ein — also das günstigste
+Angebot, das wirklich zum Alarm passt, genau das, was in M8 die Push auslöst.
+`_speichere_angebote()` gibt dafür jetzt die Preisliste statt nur einer Anzahl
+zurück.
+
+**Tests:** `tests/test_price_stats.py` (26, ohne DB),
+`tests/integration/test_price_stats.py` (13, mit DB), plus ein neuer Test in
+`tests/test_pruflauf.py` für das nicht mehr gesendete Preislimit.
+
+**Keine Migration nötig** — M7 liest nur bestehende Tabellen.
+
+### Entscheidungen aus M7
 
 Ausführlich in `CLAUDE.md`; hier die Merksätze:
 
-- **`alarm_zu_suchanfragen()` gibt eine Liste zurück** — vorerst mit genau
-  einem Eintrag. Der Alarm nennt einen *Zeitraum*, die API will *ein* Datum.
-  Der Datums-Fächer über den Zeitraum kostet pro Alarm ein Vielfaches an
-  API-Anfragen und kommt später; weil der Prüflauf schon jetzt über eine Liste
-  iteriert, ist das dann eine Änderung an **einer** Stelle.
-  Die eine Anfrage heute: Hinflug = frühester erlaubter Tag; Rückflug =
-  Hinflug + `min_trip_duration_days` (falls gesetzt), sonst
-  `latest_return_date`, in beiden Fällen gedeckelt auf `latest_return_date`;
-  fällt er auf den Hinflugtag oder davor → Einwegsuche.
-- **Ortszeit wird als UTC gespeichert, nicht umgerechnet** (`ortszeit_als_utc`).
-  Wanduhrzeit stimmt, Zeitpunkt nicht — Dauern deshalb **immer** aus
-  `dauer_minuten`, nie durch Abziehen zweier gespeicherter Zeiten.
-- **Flüge über die Datumsgrenze nach Osten werden übersprungen.** Tokio 21:00
-  ab, Honolulu 09:00 an am selben Tag: als Wanduhrzeit korrekt, als Zeitpunkt
-  eine negative Dauer — der CHECK `ck_offers_outbound_time_order` verbietet
-  das. Übersprungen statt gespeichert, wie bei kaputten Angeboten in M5.
-- **`last_checked_at` wird auch nach einem Fehler gesetzt**, sonst hämmert der
-  Worker im Minutentakt gegen eine gerade kaputte Schnittstelle.
-- **`min_price_cents` in der Beobachtung ist der günstigste *gefundene*
-  Preis**, nicht der günstigste passende. Auch ein Angebot über dem Limit ist
-  ein Datenpunkt für den Preisverlauf.
-- **Ein kaputter Alarm beendet den Durchgang nicht** — Rollback, protokollieren,
-  weiter mit dem nächsten.
-- **Kein `FOR UPDATE SKIP LOCKED`** — es läuft genau eine Worker-Instanz.
+- **Median statt Durchschnitt.** Ein einzelner Business-Class-Tarif zöge den
+  Durchschnitt um Hunderte Euro hoch.
+- **Unter 10 Datenpunkten keine Prozentaussage**, sondern `ZU_WENIG_DATEN`.
+  `median_cents` und `abweichung_prozent` sind dann `None`, damit niemand
+  versehentlich eine 0 anzeigt.
+- **Schwellen ±10 %** für „günstig"/„teuer", inklusiv. Bewusste Setzung, keine
+  Wissenschaft — beide Konstanten stehen oben in `price_stats.py`.
+- **Nur `search_ok = true` und `min_price_cents IS NOT NULL` zählen.**
+- **Der Lauf vergleicht sich nicht gegen sich selbst** — Vergleichspreise
+  werden geholt, *bevor* die eigene Beobachtung geschrieben wird.
+- **`ist_bestpreis` getrennt von der Einordnung.** Ein neuer Tiefstpreis kann
+  „normal" sein und trotzdem meldenswert (im Beleg unten: 230 € ist −8,4 % und
+  damit „normal", aber Rekord).
 
 ## Verifizierter Zustand (zuletzt real nachgeprüft, nicht nur behauptet)
 
-- **Tests:** mit DB `168 passed`; ohne DB `115 passed, 53 skipped`. Beides grün.
-  Diese Zahlen sind der Soll-Wert für die nächste Session — weicht etwas ab,
-  ist etwas kaputt oder es kam Neues dazu.
+- **Tests:** mit DB `208 passed`; ohne DB `142 passed, 66 skipped`. Beides grün.
+  Diese Zahlen sind der Soll-Wert für die nächste Session.
 - `ruff check` sauber, `ruff format` angewandt, `mypy app` (strict) sauber,
   `alembic check` ohne Drift.
-- **Worker echt gestartet** (lokales Postgres, ein Alarm in der DB, keine
-  Amadeus-Zugangsdaten): Er lief an, prüfte den fälligen Alarm sofort, meldete
-  den fehlenden Zugang als **verständlichen deutschen Satz** im Log statt mit
-  einem Stacktrace, schrieb eine `flight_observation` mit `search_ok = false`,
-  setzte `last_checked_at` und fuhr auf Strg-C sauber herunter.
-- Der Abnahmetest von M6 (`test_lauf_schreibt_beobachtung_und_angebote`) prüft
-  gegen die gespeicherte Amadeus-Fixture: 3 Angebote, davon eines mit zwei
-  Umstiegen herausgefiltert, 2 gespeichert, Beobachtung mit `min_price` 189,50 €.
-- Frühere Meilensteine weiterhin per curl belegt (siehe Commit-Nachrichten).
+- **Statistik gegen echte, committete Daten belegt** (nicht nur im Test): 14
+  Beobachtungen für HAM→LIS im November eingespielt, darunter ein Ausreißer
+  über 1200 €, eine Zeile mit `search_ok = false` und eine 200 Tage alte.
+  Ergebnis:
+
+  ```
+   199.00 EUR → guenstig   Median 251.00 EUR  -20.7 %  n=12  Bestpreis=True
+   251.00 EUR → normal     Median 251.00 EUR   +0.0 %  n=12  Bestpreis=False
+   299.00 EUR → teuer      Median 251.00 EUR  +19.1 %  n=12  Bestpreis=False
+   230.00 EUR → normal     Median 251.00 EUR   -8.4 %  n=12  Bestpreis=True
+   ohne Historie → zu_wenig_daten, n=0, Median=None
+  ```
+
+  `n=12` statt 14 belegt, dass Ausfall und Altzeile ausgeschlossen werden; der
+  Median von 251 € trotz des 1200-€-Ausreißers belegt die Ausreißerfestigkeit.
+- **Worker echt gestartet** (M6, weiterhin gültig): läuft ohne
+  Amadeus-Zugangsdaten an, meldet den fehlenden Zugang als verständlichen
+  deutschen Satz, schreibt die Beobachtung mit `search_ok = false` und fährt
+  auf Strg-C sauber herunter.
 
 ## Offene Punkte / Fallstricke
 
-- **`maxPrice` verzerrt die spätere Preisstatistik (wichtig für M7).** Die
-  Suchanfrage schickt das Preislimit des Nutzers an Amadeus mit. Dadurch
-  liefert die API an teuren Tagen gar nichts, und die Beobachtung bekommt
-  `min_price_cents = NULL` statt „der günstigste war 380 €". Für den Median in
-  M7 ist das schlecht. Der Fix ist klein und lokal: `max_price_cents` in
-  `alarm_zu_suchanfragen()` weglassen und nur noch lokal filtern (das
-  passiert in `_angebot_als_zeile()` ohnehin schon). Kostet keine zusätzliche
-  API-Anfrage, nur etwas mehr Antwortdaten. **Bewusst nicht in M6 gemacht**,
-  weil es eine inhaltliche Entscheidung für M7 ist.
+- **M4 fehlt komplett** (siehe oben). Das Backend kann alles, was der Client
+  bräuchte — es gibt ihn nur noch nicht.
 - **Amadeus-Zugang fehlt (Nutzer-Aktion).** Konto auf `developers.amadeus.com`,
   Self-Service-App anlegen, `AMADEUS_CLIENT_ID` / `AMADEUS_CLIENT_SECRET` in
   `backend/.env`. Ohne Zugangsdaten laufen alle Tests und der Worker; nur die
   echte Suche scheitert (mit klarer Meldung).
-- **Die Fixture ist nachgebaut, nicht mitgeschnitten.** **Erste Aufgabe mit
-  Zugangsdaten:** einmal echt suchen, Antwort nach `tests/fixtures/` schreiben,
+- **Die Fixture ist nachgebaut, nicht mitgeschnitten.** Erste Aufgabe mit
+  Zugangsdaten: einmal echt suchen, Antwort nach `tests/fixtures/` schreiben,
   Tests laufen lassen. Details: `backend/tests/fixtures/README.md`.
 - **Supabase-Projekt fehlt (Nutzer-Aktion).** `SUPABASE_URL` und
-  `SUPABASE_JWT_SECRET` in `backend/.env`. Gibt es dort kein symmetrisches
-  Secret mehr, sondern nur JWKS → `core/security.py` auf RS256/ES256 erweitern
+  `SUPABASE_JWT_SECRET` in `backend/.env`. Gibt es dort nur noch JWKS statt
+  eines symmetrischen Secrets → `core/security.py` auf RS256/ES256 erweitern
   (`pyjwt[crypto]`); die Endpunkte bleiben unverändert.
-- **Nur ein Suchdatum pro Alarm** (siehe Entscheidungen) — der Datums-Fächer
-  fehlt noch.
+- **Die Statistik ist noch nirgends sichtbar.** `Preisbewertung` steckt im
+  `LaufErgebnis` und im Log, aber es gibt keinen Endpunkt dafür. Das ist
+  Absicht — M8 (Push) und M9 (Detailansicht) sind die Abnehmer.
+- **Die 90 Tage sind ein fester Wert**, keine Einstellung. Reicht vorerst;
+  wenn er verstellbar sein soll, gehört er in `config.py`.
+- **Nur ein Suchdatum pro Alarm** — der Datums-Fächer über den Zeitraum fehlt
+  noch. `alarm_zu_suchanfragen()` gibt deshalb schon eine Liste zurück.
 - **Kein Aufräumen alter Daten.** `flight_observations` wächst pro Alarm und
-  Lauf. Bei 6-Stunden-Takt sind das 4 Zeilen pro Alarm und Tag — unkritisch,
-  aber irgendwann braucht es eine Aufräum-Aufgabe (Kandidat für M11/M12).
+  Lauf (4 Zeilen/Tag bei 6-Stunden-Takt). Kandidat für M11/M12.
 - **`GET /alerts` ohne Paginierung.** Bei 5 Alarmen egal.
 - **Token ohne `email`** → 401, weil `users.email` NOT NULL ist.
 - **`device_tokens` wird in M8 angepasst** (Web-Push statt APNs) — eigene
@@ -178,36 +172,33 @@ Ausführlich in `CLAUDE.md`; hier die Merksätze:
   merkt sich `pruefe_faellige_alarme()` nur die IDs und lädt jeden Alarm mit
   `await session.get(...)` neu. Wer Tests um Fehlerfälle herum schreibt, muss
   IDs **vor** dem Rollback festhalten.
+- **Stolperfalle Statistik-Tests:** `hole_vergleichspreise()` fragt bewusst
+  über alle Nutzer ab. Tests dürfen sich deshalb keine feste Strecke teilen —
+  `tests/integration/test_price_stats.py` würfelt sie pro Test aus.
 - Keine echten Bugs bekannt.
 
 ## Exakter Arbeitspunkt
 
-M6 abgeschlossen, committet und gepusht. Nichts ist halbfertig. Die
-Kernfunktion läuft Ende-zu-Ende, es fehlen nur noch Zugangsdaten für echte
-Daten.
+M7 abgeschlossen, committet und gepusht. Nichts ist halbfertig.
 
-## Nächste Schritte — Vorschlag: M7 (Preisstatistik)
+## Nächste Schritte — Empfehlung: M4 (Web-Client)
 
-M7 ist der nächste Backend-Schritt und macht aus „Preis unter Limit" ein
-„gutes Angebot". Er baut direkt auf den `flight_observations` auf, die M6 jetzt
-schreibt.
+Das Backend hat jetzt fünf Meilensteine Vorsprung vor dem Client. Man kann
+nichts davon sehen oder ausprobieren, ohne `curl` zu tippen — und die
+nächsten Backend-Schritte (Push) lassen sich ohne Client ohnehin nicht
+sinnvoll abnehmen.
 
-1. **Zuerst die `maxPrice`-Verzerrung beheben** (siehe offene Punkte oben) —
-   sonst rechnet die Statistik auf beschnittenen Daten.
-2. **Median und Perzentile** je Strecke und Reisemonat über alle Nutzer
-   (`ix_observations_route_month` ist genau dafür da). Reine Funktion in
-   `services/`, Eingabe eine Liste von Preisen — ohne DB testbar.
-3. **Mindestanzahl Datenpunkte** festlegen: Unter *n* Beobachtungen gibt es
-   keine Aussage, sondern ehrlich „noch zu wenig Daten". Nur Zeilen mit
-   `search_ok = true` zählen.
-4. **Bewertung** („günstig / normal / teuer") als deterministische Statistik in
-   Python — Leitplanke 3 aus `CLAUDE.md`: Claude entscheidet nicht.
-5. **Tests** ohne DB für die Rechnung, mit DB für die Abfrage.
+1. **Supabase-Projekt anlegen** (Nutzer-Aktion, blockiert sonst alles).
+2. **Login im Browser** — `supabase-js` per CDN, kein Node (`CLAUDE.md`:
+   kein Framework, bis Formulare es verlangen).
+3. **Token mitschicken** — `Authorization: Bearer` an `/me` und `/alerts`.
+4. **Alarmliste + Anlegen-Formular**, Lade-/Leer-/Fehlerzustand sichtbar,
+   Fehler als verständlicher deutscher Text, nie ein Statuscode.
+5. **Gegen das echte Backend testen** (`make dev` + `make web`).
 
-**Alternative Reihenfolge:** Wer lieber etwas sehen will, zieht **M4
-(Web-Client)** vor — Supabase-Login im Browser (`supabase-js` per CDN, kein
-Node), Token als `Authorization: Bearer`, Alarmliste + Anlegen-Formular,
-Lade-/Leer-/Fehlerzustand sichtbar, Fehler als deutscher Text. Das Backend
-kann alles, was der Client dafür braucht.
+**Alternative:** Wer lieber im Backend bleibt, nimmt **M8 (Push)** —
+`device_tokens` auf Web-Push umstellen (eigene Migration), VAPID-Schlüssel,
+`pywebpush`, Dedupe über `notification_logs.dedupe_key`, Abkühlphase und
+5-%-Regel. Die Einordnung aus M7 liefert dafür schon den Inhalt der Nachricht.
 
-Danach: M8 (Push) → M9–M12.
+Danach: M9–M12.

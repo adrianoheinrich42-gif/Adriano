@@ -37,6 +37,7 @@ from app.services.amadeus import (
     Flugsuche,
     Suchanfrage,
 )
+from app.services.price_stats import Preisbewertung, bewerte_preis, hole_vergleichspreise
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +70,18 @@ def alarm_zu_suchanfragen(alert: PriceAlert) -> list[Suchanfrage]:
       In beiden Fällen gedeckelt auf `latest_return_date`.
     * Fällt der Rückflug auf den Hinflugtag oder davor, wird **einwegs**
       gesucht (`return_date=None`).
+
+    **Das Preislimit des Nutzers wird bewusst NICHT mitgeschickt.** Amadeus
+    kennt dafür `maxPrice`, und es liegt nahe, das zu benutzen — es wäre aber
+    ein Fehler: Die Antwort enthielte dann an teuren Tagen gar nichts, und die
+    `flight_observation` bekäme `min_price_cents = NULL` statt „der günstigste
+    war 380 €". Damit wäre der Preisverlauf abgeschnitten und der Median in M7
+    systematisch zu niedrig — die Statistik sähe nur die guten Tage.
+
+    Gefiltert wird deshalb erst hier bei uns (`_angebot_als_zeile`). Das
+    kostet keine zusätzliche Anfrage, nur ein paar Angebote mehr in der
+    Antwort. Amadeus sortiert ohnehin nach Preis, `max_ergebnisse` schneidet
+    also die teuersten ab, nicht die billigsten.
     """
     hinflug = alert.earliest_departure_date
 
@@ -88,7 +101,7 @@ def alarm_zu_suchanfragen(alert: PriceAlert) -> list[Suchanfrage]:
             adults=alert.adults,
             max_stops=alert.max_stops,
             waehrung=alert.currency,
-            max_price_cents=alert.max_price_cents,
+            # max_price_cents bleibt None — siehe Docstring.
         )
     ]
 
@@ -219,6 +232,9 @@ class LaufErgebnis:
     # Grund zur Sorge, der nächste Lauf versucht es erneut.
     spaeter_erneut: bool = False
     fehler: str | None = None
+    # Einordnung des besten gespeicherten Angebots gegen die Streckenhistorie
+    # (M7). `None`, wenn dieser Lauf nichts Passendes gefunden hat.
+    bewertung: Preisbewertung | None = None
 
 
 @dataclass
@@ -301,7 +317,8 @@ async def pruefe_alarm(
        gefunden wurde oder die Suche scheiterte. Ohne die langweiligen Tage
        gibt es später keinen brauchbaren Median.
     3. Angebote unter dem Preislimit als `flight_offers` per Upsert ablegen.
-    4. `last_checked_at` setzen — **auch nach einem Fehler**. Sonst bliebe der
+    4. Den besten Treffer gegen die Streckenhistorie einordnen (M7).
+    5. `last_checked_at` setzen — **auch nach einem Fehler**. Sonst bliebe der
        Alarm „fällig" und der Worker hämmerte im Minutentakt gegen eine
        Schnittstelle, die gerade ohnehin nicht will.
 
@@ -337,6 +354,18 @@ async def pruefe_alarm(
     preise = [a.preis_cents for a in angebote if a.waehrung == alert.currency]
     min_preis = min(preise) if preise else None
 
+    monat = anfragen[0].departure_date.strftime("%Y-%m")
+
+    # Vergleichspreise **vor** dem Schreiben der eigenen Beobachtung holen.
+    # Sonst verglichen wir den heutigen Preis gegen einen Median, in dem er
+    # selbst schon steckt — bei knapp zehn Datenpunkten verschiebt das das
+    # Ergebnis spürbar in Richtung „normal".
+    vergleichspreise: list[int] = []
+    if min_preis is not None:
+        vergleichspreise = await hole_vergleichspreise(
+            session, alert.origin, alert.destination, monat, jetzt
+        )
+
     beobachtung = FlightObservation(
         price_alert_id=alert.id,
         observed_at=jetzt,
@@ -344,7 +373,7 @@ async def pruefe_alarm(
         currency=alert.currency,
         origin=alert.origin,
         destination=alert.destination,
-        departure_month=anfragen[0].departure_date.strftime("%Y-%m"),
+        departure_month=monat,
         offers_found=len(angebote),
         search_ok=search_ok,
     )
@@ -354,7 +383,20 @@ async def pruefe_alarm(
     # halten — entweder der ganze Lauf steht in der Datenbank oder keiner.
     await session.flush()
 
-    gespeichert = await _speichere_angebote(session, alert, beobachtung.id, angebote, jetzt)
+    gespeicherte_preise = await _speichere_angebote(session, alert, beobachtung.id, angebote, jetzt)
+
+    # Eingeordnet wird der **beste Treffer**, also das günstigste Angebot, das
+    # tatsächlich zum Alarm passt — genau das würde später die Push auslösen.
+    bewertung: Preisbewertung | None = None
+    if gespeicherte_preise:
+        bewertung = bewerte_preis(min(gespeicherte_preise), vergleichspreise)
+        logger.info(
+            "Alarm %s: bester Treffer %d Cent → %s (%d Vergleichswerte).",
+            alert.id,
+            bewertung.preis_cents,
+            bewertung.einordnung.value,
+            bewertung.datenpunkte,
+        )
 
     alert.last_checked_at = jetzt
     await session.commit()
@@ -363,7 +405,8 @@ async def pruefe_alarm(
         alarm_id=alert.id,
         search_ok=search_ok,
         angebote_gefunden=len(angebote),
-        angebote_gespeichert=gespeichert,
+        angebote_gespeichert=len(gespeicherte_preise),
+        bewertung=bewertung,
         min_preis_cents=min_preis,
         spaeter_erneut=spaeter_erneut,
         fehler=fehler,
@@ -376,14 +419,17 @@ async def _speichere_angebote(
     beobachtung_id: uuid.UUID,
     angebote: list[Flugangebot],
     jetzt: datetime,
-) -> int:
-    """Passende Angebote per Upsert ablegen; gibt die Anzahl zurück.
+) -> list[int]:
+    """Passende Angebote per Upsert ablegen; gibt deren Preise zurück.
 
     „Passend" heißt: gleiche Währung wie der Alarm und Preis **nicht über**
-    dem Limit. Amadeus filtert per `maxPrice` schon grob vor, aber gerundet
-    auf ganze Euro — die genaue Grenze zieht erst diese Prüfung.
+    dem Limit. Amadeus bekommt das Limit bewusst nicht mit (siehe
+    `alarm_zu_suchanfragen`), gefiltert wird also ausschließlich hier.
+
+    Die Preise statt nur einer Anzahl, weil der Aufrufer den **besten**
+    Treffer für die Einordnung (M7) braucht.
     """
-    gespeichert = 0
+    gespeicherte_preise: list[int] = []
 
     for angebot in angebote:
         werte = _angebot_als_zeile(alert, beobachtung_id, angebot, jetzt)
@@ -403,9 +449,9 @@ async def _speichere_angebote(
             },
         )
         await session.execute(stmt)
-        gespeichert += 1
+        gespeicherte_preise.append(angebot.preis_cents)
 
-    return gespeichert
+    return gespeicherte_preise
 
 
 def _angebot_als_zeile(
