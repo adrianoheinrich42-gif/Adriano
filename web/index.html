@@ -10,38 +10,175 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <main class="screen">
-      <h1>Flugalarm</h1>
+    <!-- Die App hat genau zwei Ansichten: angemeldet oder nicht. JavaScript
+         blendet die passende ein; ohne JavaScript sieht man den Ladehinweis. -->
 
-      <!-- Genau die drei Zustände, die zuvor die iOS-App hatte:
-           Laden / Erfolg / Fehler. JavaScript blendet den passenden ein. -->
+    <header class="kopf" id="kopf" hidden>
+      <span class="kopf__titel">Flugalarm</span>
+      <span class="kopf__nutzer" id="kopfEmail"></span>
+      <button class="btn btn--schlicht" id="abmeldenKnopf" type="button">Abmelden</button>
+    </header>
 
-      <section id="loading" class="card">
+    <main class="schirm">
+      <!-- ── Startzustand ─────────────────────────────────────────────── -->
+      <section id="ansichtLaden" class="karte karte--mittig">
         <div class="spinner" aria-hidden="true"></div>
-        <p>Verbinde mit dem Backend …</p>
+        <p>Einen Moment …</p>
       </section>
 
-      <section id="success" class="card" hidden>
-        <div id="statusIcon" class="icon">✓</div>
-        <h2 id="statusTitle">Backend erreichbar</h2>
-        <p id="statusHint" class="hint" hidden></p>
-        <dl class="details">
-          <div><dt>Datenbank</dt><dd id="dbValue">–</dd></div>
-          <div><dt>Version</dt><dd id="versionValue">–</dd></div>
-          <div><dt>Umgebung</dt><dd id="envValue">–</dd></div>
-        </dl>
-        <button class="btn" data-action="reload">Erneut prüfen</button>
+      <!-- ── Anmeldung ────────────────────────────────────────────────── -->
+      <section id="ansichtAnmeldung" class="karte" hidden>
+        <h1>Flugalarm</h1>
+        <p class="hinweis">
+          Sag uns, wohin du willst und was es höchstens kosten darf. Wir sehen
+          regelmäßig nach und melden uns, wenn der Preis passt.
+        </p>
+
+        <form id="anmeldeFormular" novalidate>
+          <label for="email">E-Mail-Adresse</label>
+          <input id="email" name="email" type="email" autocomplete="email" required />
+
+          <label for="passwort">Passwort</label>
+          <input
+            id="passwort"
+            name="passwort"
+            type="password"
+            autocomplete="current-password"
+            minlength="6"
+            required
+          />
+
+          <p id="anmeldeFehler" class="fehler" role="alert" hidden></p>
+          <p id="anmeldeHinweis" class="erfolg" role="status" hidden></p>
+
+          <button class="btn btn--primaer" id="anmeldenKnopf" type="submit">Anmelden</button>
+          <button class="btn btn--schlicht" id="registrierenKnopf" type="button">
+            Neues Konto anlegen
+          </button>
+        </form>
+
+        <p class="fussnote" id="serverStatus"></p>
       </section>
 
-      <section id="error" class="card" hidden>
-        <div class="icon icon--warn">⚠︎</div>
-        <h2>Keine Verbindung</h2>
-        <p id="errorMessage" class="hint"></p>
-        <button class="btn btn--primary" data-action="reload">Erneut versuchen</button>
+      <!-- ── Alarmliste ───────────────────────────────────────────────── -->
+      <section id="ansichtAlarme" hidden>
+        <div class="listenkopf">
+          <h1>Deine Alarme</h1>
+          <button class="btn btn--primaer" id="neuKnopf" type="button">+ Neuer Alarm</button>
+        </div>
+
+        <p id="listenFehler" class="fehler" role="alert" hidden></p>
+
+        <!-- Ladezustand, Leerzustand und Liste: alle drei sichtbar gemacht,
+             damit nie ein weißer Bildschirm ohne Erklärung dasteht. -->
+        <div id="listeLaedt" class="karte karte--mittig">
+          <div class="spinner" aria-hidden="true"></div>
+          <p>Alarme werden geladen …</p>
+        </div>
+
+        <div id="listeLeer" class="karte karte--mittig" hidden>
+          <div class="symbol">✈︎</div>
+          <h2>Noch kein Alarm</h2>
+          <p class="hinweis">
+            Lege deinen ersten Preisalarm an — zum Beispiel München → Barcelona
+            im September für höchstens 200 €.
+          </p>
+        </div>
+
+        <ul id="alarmListe" class="liste" hidden></ul>
       </section>
     </main>
 
-    <!-- type="module": erlaubt import/export; der Browser lädt config.js selbst. -->
+    <!-- ── Formular für einen neuen Alarm ─────────────────────────────── -->
+    <dialog id="alarmDialog">
+      <form id="alarmFormular" method="dialog" novalidate>
+        <h2>Neuer Preisalarm</h2>
+
+        <div class="paar">
+          <div>
+            <label for="origin">Von (Flughafen-Kürzel)</label>
+            <input id="origin" name="origin" maxlength="3" placeholder="MUC" required />
+          </div>
+          <div>
+            <label for="destination">Nach</label>
+            <input id="destination" name="destination" maxlength="3" placeholder="BCN" required />
+          </div>
+        </div>
+
+        <div class="paar">
+          <div>
+            <label for="earliest">Frühester Hinflug</label>
+            <input id="earliest" name="earliest" type="date" required />
+          </div>
+          <div>
+            <label for="latest">Spätester Rückflug</label>
+            <input id="latest" name="latest" type="date" required />
+          </div>
+        </div>
+
+        <div class="paar">
+          <div>
+            <label for="preis">Höchstpreis</label>
+            <input id="preis" name="preis" inputmode="decimal" placeholder="200,00" required />
+          </div>
+          <div>
+            <label for="stops">Umstiege</label>
+            <select id="stops" name="stops">
+              <option value="0">nur Direktflug</option>
+              <option value="1" selected>höchstens 1</option>
+              <option value="2">höchstens 2</option>
+              <option value="3">höchstens 3</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Selten gebraucht, deshalb eingeklappt: Das Formular soll auf den
+             ersten Blick kurz aussehen. -->
+        <details>
+          <summary>Weitere Einstellungen</summary>
+
+          <div class="paar">
+            <div>
+              <label for="adults">Reisende</label>
+              <input id="adults" name="adults" type="number" min="1" max="9" value="1" />
+            </div>
+            <div>
+              <label for="intervall">Prüfen alle … Stunden</label>
+              <input id="intervall" name="intervall" type="number" min="1" max="168" value="6" />
+            </div>
+          </div>
+
+          <div class="paar">
+            <div>
+              <label for="minTage">Mindestens … Tage bleiben</label>
+              <input id="minTage" name="minTage" type="number" min="1" max="365" />
+            </div>
+            <div>
+              <label for="maxTage">Höchstens … Tage bleiben</label>
+              <input id="maxTage" name="maxTage" type="number" min="1" max="365" />
+            </div>
+          </div>
+
+          <label class="schalter">
+            <input id="gepaeck" name="gepaeck" type="checkbox" />
+            Aufgegebenes Gepäck muss enthalten sein
+          </label>
+          <label class="schalter">
+            <input id="nachtflug" name="nachtflug" type="checkbox" />
+            Keine Nachtflüge
+          </label>
+        </details>
+
+        <p id="formularFehler" class="fehler" role="alert" hidden></p>
+
+        <div class="dialogKnoepfe">
+          <button class="btn btn--schlicht" id="abbrechenKnopf" type="button">Abbrechen</button>
+          <button class="btn btn--primaer" id="speichernKnopf" type="submit">Alarm anlegen</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- type="module": erlaubt import/export; der Browser lädt den Rest selbst. -->
     <script type="module" src="app.js"></script>
   </body>
 </html>

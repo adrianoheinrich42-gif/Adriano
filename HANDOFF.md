@@ -7,7 +7,8 @@ Zuerst `CLAUDE.md` lesen, dann diese Datei, dann `git log` / `git status`.
 Meilenstein-Commits (dazwischen liegen reine Doku-Commits):
 
 ```
-M7 — Preisstatistik (+ maxPrice-Verzerrung behoben)   ← neu
+M4 — Web-Client: Anmeldung, Alarmliste, Formular   ← neu
+02306d3 M7 — Preisstatistik (+ maxPrice-Verzerrung behoben)
 6f08a1a M6 — Prüflauf: Alarme und Flugsuche verbunden
 db30665 M5 — Amadeus-Anbindung
 68a2125 M3 — CRUD für Preisalarme
@@ -19,18 +20,12 @@ def9ae6 M0 — Projektgerüst
 
 ## Wo wir stehen
 
-**M0–M3, M5, M6 und M7 fertig.** Das Backend kann alles, was die Kernfunktion
-braucht: Alarme verwalten, zeitgesteuert bei Amadeus suchen, Preisverlauf
-aufzeichnen und ein Angebot gegen die Streckenhistorie einordnen.
+**M0–M7 fertig.** Die App ist zum ersten Mal von Hand benutzbar: anmelden,
+Alarm anlegen, Liste ansehen, pausieren, löschen. Das Backend prüft
+zeitgesteuert bei Amadeus, zeichnet den Preisverlauf auf und ordnet Angebote
+gegen die Streckenhistorie ein.
 
-**⚠️ M4 ist NICHT fertig** — das war in einer früheren Übergabe missverständlich.
-`web/` enthält nur den M0-Spiegel: 104 Zeilen `app.js`, die `/health` abfragen
-und den Serverstatus anzeigen. **Kein** Supabase-Login, **kein**
-`Authorization: Bearer`, **keine** Alarmliste, **kein** Formular. Real geprüft
-per `grep` über `web/` — die einzigen Treffer für „Alarm"/„anmelden" sind ein
-Kommentar und ein vorbereiteter Fehlertext.
-
-**Noch 6 Meilensteine bis „fertig": M4, M8–M12.**
+**Noch 5 Meilensteine: M8–M12.**
 
 Endpunkte: `GET /health` · `GET /me` · `POST/GET/PATCH/DELETE /alerts`.
 Prozesse: API (`app.main:app`) **und** Worker (`app.jobs.worker`).
@@ -38,81 +33,102 @@ Prozesse: API (`app.main:app`) **und** Worker (`app.jobs.worker`).
 Meilenstein-Übersicht: `docs/PROJEKTPLAN.md` §5; für Client/Push gilt
 `docs/PLATTFORM-WEB.md` vor.
 
+## ⚠️ Zwei Dinge fehlen, die nur der Nutzer tun kann
+
+Beides blockiert nicht die Entwicklung, aber den echten Betrieb:
+
+1. **Supabase-Projekt** → `docs/SUPABASE-EINRICHTEN.md` (Anleitung ohne
+   Vorwissen, ~15 Minuten). Danach `SUPABASE_URL` und `SUPABASE_JWT_SECRET`
+   in `backend/.env`, `supabaseUrl` und `supabaseAnonKey` in `web/config.js`.
+   **Ohne das kann sich niemand anmelden.**
+2. **Amadeus-Zugang** → Konto auf `developers.amadeus.com`,
+   `AMADEUS_CLIENT_ID` / `AMADEUS_CLIENT_SECRET` in `backend/.env`. Ohne das
+   laufen Tests und Worker, nur die echte Suche scheitert (mit klarer Meldung).
+
 ## Was umgesetzt ist
 
-- **M0** — FastAPI, `GET /health`, `config.py`, `db.py`; `docker-compose.yml`
-  (Postgres 16, API, Worker), `Dockerfile`, `Makefile`, `.env.example`.
-- **M1** — 6 Tabellen in `app/models/`, eine Alembic-Migration
-  (`…6513957c2dba_initial_schema.py`). 16 Integrationstests auf die
+- **M0** — FastAPI, `GET /health`, `config.py`, `db.py`; `docker-compose.yml`,
+  `Dockerfile`, `Makefile`, `.env.example`.
+- **M1** — 6 Tabellen, eine Alembic-Migration. 16 Integrationstests auf die
   DB-Zusicherungen.
 - **M2** — `core/security.py` (JWT HS256), `api/deps.py`, `services/users.py`,
   `GET /me`.
 - **M3** — `schemas/price_alert.py`, `services/price_alerts.py`,
   `api/routes/price_alerts.py`.
-- **M5** — `services/amadeus.py` (Client + reine Normalisierung),
-  `schemas/flight_offer.py`, `scripts/amadeus_suche.py`, Fixture.
-- **M6** — `services/pruflauf.py`, `jobs/worker.py` (APScheduler),
-  `tests/attrappen.py`.
-- **M7** — siehe nächster Abschnitt.
-- **Plattformwechsel** — `web/`, `docs/PLATTFORM-WEB.md`; `ios/` entfernt.
+- **M4** — siehe nächster Abschnitt.
+- **M5** — `services/amadeus.py`, `schemas/flight_offer.py`,
+  `scripts/amadeus_suche.py`, Fixture.
+- **M6** — `services/pruflauf.py`, `jobs/worker.py`, `tests/attrappen.py`.
+- **M7** — `services/price_stats.py`; Einordnung hängt im `LaufErgebnis`.
 
-## Zuletzt geändert — M7 (Preisstatistik)
+## Zuletzt geändert — M4 (Web-Client)
 
-**Zuerst die bekannte Verzerrung behoben.** `alarm_zu_suchanfragen()` schickte
-das Preislimit des Nutzers als `maxPrice` an Amadeus. Dadurch lieferte die API
-an teuren Tagen gar nichts und die Beobachtung bekam `min_price_cents = NULL`
-statt „der günstigste war 380 €" — der Median hätte nur die guten Tage gesehen.
-Das Limit wird jetzt **nicht mehr** mitgeschickt; gefiltert wird ausschließlich
-lokal in `_angebot_als_zeile()`. Kostet keine zusätzliche Anfrage.
+Neu in `web/`: `auth.js`, `api.js`, `format.js`. `index.html`, `app.js`,
+`styles.css` und `config.js` neu geschrieben. Neu: `docs/SUPABASE-EINRICHTEN.md`.
 
-**Neu: `app/services/price_stats.py`** — zwei Hälften wie gewohnt:
+| Datei | Wofür |
+|---|---|
+| `auth.js` | Registrieren, Anmelden, Abmelden, Token erneuern |
+| `api.js` | **Einziger Ort mit `fetch` aufs Backend** — Token, Zeitlimit, deutsche Fehler |
+| `format.js` | Cent ↔ Euro, Datum, „vor 5 Minuten" |
+| `app.js` | Zwei Ansichten (angemeldet / nicht), Liste zeichnen |
 
-- *rein:* `median_cents()`, `abweichung_prozent()`, `bewerte_preis()`,
-  Typen `Einordnung` (`zu_wenig_daten` / `guenstig` / `normal` / `teuer`) und
-  `Preisbewertung` (mit `hat_aussage` und `ist_bestpreis`).
-- *mit DB:* `hole_vergleichspreise()` (gleiche Strecke, gleicher Reisemonat,
-  90 Tage, über **alle** Nutzer), `bewerte_angebot()`.
+Funktionsumfang: Registrieren und Anmelden, Alarmliste mit Lade-, Leer- und
+Fehlerzustand, Anlege-Formular (Pflichtfelder oben, Seltenes eingeklappt),
+Pausieren/Fortsetzen, Löschen mit Rückfrage, Abmelden. Hell und dunkel,
+mobil-zuerst.
 
-**In den Prüflauf eingehängt:** `LaufErgebnis` hat jetzt ein Feld `bewertung`.
-`pruefe_alarm()` ordnet den **besten Treffer** ein — also das günstigste
-Angebot, das wirklich zum Alarm passt, genau das, was in M8 die Push auslöst.
-`_speichere_angebote()` gibt dafür jetzt die Preisliste statt nur einer Anzahl
-zurück.
+### Entscheidungen aus M4
 
-**Tests:** `tests/test_price_stats.py` (26, ohne DB),
-`tests/integration/test_price_stats.py` (13, mit DB), plus ein neuer Test in
-`tests/test_pruflauf.py` für das nicht mehr gesendete Preislimit.
+Ausführlich in `CLAUDE.md` und `docs/PLATTFORM-WEB.md`:
 
-**Keine Migration nötig** — M7 liest nur bestehende Tabellen.
+- **Kein `supabase-js`.** Die Bibliothek käme über ein fremdes CDN; die drei
+  Dinge, die wir brauchen, sind je ein `fetch` gegen die Supabase-REST-API.
+  Damit bleibt es bei „kein Framework, kein Node, keine fremde Abhängigkeit".
+- **Der Client kennt beim Anmelden eine zweite URL** — die einzige bewusste
+  Ausnahme von Leitplanke 1. Ginge der Login durchs eigene Backend, liefe das
+  **Passwort über unseren Server**. Alle *Daten* laufen weiter nur übers
+  eigene Backend.
+- **Der `anon`-Schlüssel darf in `config.js` stehen** (öffentlich by design).
+  Der `service_role`-Schlüssel **nie**.
+- **Nur `api.js` ruft `fetch` aufs Backend auf** — eine Stelle für Token,
+  Zeitlimit und Fehlerübersetzung.
+- **Bei 422 hat der Satz des Backends Vorrang** vor der eigenen Feldliste.
+  FastAPI liefert für Kombinationsregeln (`loc: ["body"]`) bereits einen
+  fertigen deutschen Satz; „Bitte prüfe das Feld body" hilft niemandem.
+- **`textContent`, nie `innerHTML`.**
+- **Liste wird bei jeder Änderung neu gezeichnet.** Bei fünf Alarmen schnell
+  genug, und es gibt keinen Zustand, der auseinanderlaufen kann.
 
-### Entscheidungen aus M7
+## Verifizierter Zustand (real nachgeprüft, nicht behauptet)
 
-Ausführlich in `CLAUDE.md`; hier die Merksätze:
-
-- **Median statt Durchschnitt.** Ein einzelner Business-Class-Tarif zöge den
-  Durchschnitt um Hunderte Euro hoch.
-- **Unter 10 Datenpunkten keine Prozentaussage**, sondern `ZU_WENIG_DATEN`.
-  `median_cents` und `abweichung_prozent` sind dann `None`, damit niemand
-  versehentlich eine 0 anzeigt.
-- **Schwellen ±10 %** für „günstig"/„teuer", inklusiv. Bewusste Setzung, keine
-  Wissenschaft — beide Konstanten stehen oben in `price_stats.py`.
-- **Nur `search_ok = true` und `min_price_cents IS NOT NULL` zählen.**
-- **Der Lauf vergleicht sich nicht gegen sich selbst** — Vergleichspreise
-  werden geholt, *bevor* die eigene Beobachtung geschrieben wird.
-- **`ist_bestpreis` getrennt von der Einordnung.** Ein neuer Tiefstpreis kann
-  „normal" sein und trotzdem meldenswert (im Beleg unten: 230 € ist −8,4 % und
-  damit „normal", aber Rekord).
-
-## Verifizierter Zustand (zuletzt real nachgeprüft, nicht nur behauptet)
-
-- **Tests:** mit DB `208 passed`; ohne DB `142 passed, 66 skipped`. Beides grün.
+- **Backend-Tests:** mit DB `208 passed`; ohne DB `142 passed, 66 skipped`.
+  `ruff` und `mypy app` (strict) sauber, `alembic check` ohne Drift.
   Diese Zahlen sind der Soll-Wert für die nächste Session.
-- `ruff check` sauber, `ruff format` angewandt, `mypy app` (strict) sauber,
-  `alembic check` ohne Drift.
-- **Statistik gegen echte, committete Daten belegt** (nicht nur im Test): 14
-  Beobachtungen für HAM→LIS im November eingespielt, darunter ein Ausreißer
-  über 1200 €, eine Zeile mit `search_ok = false` und eine 200 Tage alte.
-  Ergebnis:
+- **M4 im echten Chromium gegen das echte Backend geprüft — 11 Schritte:**
+  1. Anmeldeansicht erscheint, `/health` meldet „Server erreichbar."
+  2. Falsches Passwort → „E-Mail-Adresse oder Passwort stimmt nicht."
+  3. Anmeldung klappt, Leerzustand „Noch kein Alarm"
+  4. Alarm angelegt; „muc" wurde zu MUC, „200,00" zu 20000 Cent
+  5. Backend bestätigt `max_price_cents = 20000`
+  6. Serverregel als deutscher Satz: „Start- und Zielflughafen dürfen nicht
+     gleich sein." (kein „422", kein „body")
+  7. Preis „zweihundert" wird abgefangen, bevor eine Anfrage rausgeht
+  8. Pausieren wirkt (PATCH) und die Karte zeigt es
+  9. Ungültiges Token → 401 → automatisch zurück zur Anmeldung
+  10. Löschen mit Rückfrage, danach wieder Leerzustand
+  11. Abmelden löscht die Sitzung; nach Neuladen bleibt man abgemeldet
+
+  Keine Fehler in der Browser-Konsole. **Supabase war dabei eine Attrappe**
+  (`page.route("**/auth/v1/**")`), das Token aber echt mit
+  `SUPABASE_JWT_SECRET` signiert — das Backend prüfte also unverändert scharf.
+  **Im Anwendungscode steht dafür keine einzige Testzeile.**
+- **Dabei gefunden und behoben:** `.kopf { display: flex }` hebelte das
+  `hidden`-Attribut aus — die Kopfzeile war vor dem Login sichtbar. Fix:
+  `[hidden] { display: none !important }` ganz oben in `styles.css`.
+- **Statistik gegen echte committete Daten belegt** (M7, weiterhin gültig):
+  14 Beobachtungen HAM→LIS mit einem Ausreißer über 1200 €, einer Zeile mit
+  `search_ok = false` und einer 200 Tage alten →
 
   ```
    199.00 EUR → guenstig   Median 251.00 EUR  -20.7 %  n=12  Bestpreis=True
@@ -122,37 +138,35 @@ Ausführlich in `CLAUDE.md`; hier die Merksätze:
    ohne Historie → zu_wenig_daten, n=0, Median=None
   ```
 
-  `n=12` statt 14 belegt, dass Ausfall und Altzeile ausgeschlossen werden; der
-  Median von 251 € trotz des 1200-€-Ausreißers belegt die Ausreißerfestigkeit.
-- **Worker echt gestartet** (M6, weiterhin gültig): läuft ohne
-  Amadeus-Zugangsdaten an, meldet den fehlenden Zugang als verständlichen
-  deutschen Satz, schreibt die Beobachtung mit `search_ok = false` und fährt
-  auf Strg-C sauber herunter.
-
 ## Offene Punkte / Fallstricke
 
-- **M4 fehlt komplett** (siehe oben). Das Backend kann alles, was der Client
-  bräuchte — es gibt ihn nur noch nicht.
-- **Amadeus-Zugang fehlt (Nutzer-Aktion).** Konto auf `developers.amadeus.com`,
-  Self-Service-App anlegen, `AMADEUS_CLIENT_ID` / `AMADEUS_CLIENT_SECRET` in
-  `backend/.env`. Ohne Zugangsdaten laufen alle Tests und der Worker; nur die
-  echte Suche scheitert (mit klarer Meldung).
+- **Der Browsertest liegt nicht im Repository.** Er brauchte Playwright, das
+  keine Projekt-Abhängigkeit ist. Wer ihn wiederholen will: Chromium liegt
+  unter `/opt/pw-browsers`, `playwright` per `uv pip install` in eine eigene
+  Umgebung, Supabase per `page.route("**/auth/v1/**")` ersetzen, Token mit
+  `SUPABASE_JWT_SECRET` signieren. Ob er als Projekt-Abhängigkeit dazukommen
+  soll, ist eine offene Entscheidung (Kosten: Node-freie, aber große
+  Abhängigkeit).
+- **Alarme lassen sich nur anlegen und löschen, nicht bearbeiten.** Das
+  Backend kann PATCH auf allen Feldern; die Oberfläche nutzt es bisher nur für
+  Pausieren/Fortsetzen.
+- **Die Statistik ist im Client noch nicht sichtbar.** `Preisbewertung` steckt
+  im `LaufErgebnis` und im Log, es gibt keinen Endpunkt dafür. Abnehmer sind
+  M8 (Push) und M9 (Detailansicht).
+- **Noch keine PWA.** Kein Manifest, kein Service Worker, kein Icon — die App
+  ist noch nicht „zum Home-Bildschirm hinzufügbar". Gehört zu M8.
 - **Die Fixture ist nachgebaut, nicht mitgeschnitten.** Erste Aufgabe mit
-  Zugangsdaten: einmal echt suchen, Antwort nach `tests/fixtures/` schreiben,
-  Tests laufen lassen. Details: `backend/tests/fixtures/README.md`.
-- **Supabase-Projekt fehlt (Nutzer-Aktion).** `SUPABASE_URL` und
-  `SUPABASE_JWT_SECRET` in `backend/.env`. Gibt es dort nur noch JWKS statt
-  eines symmetrischen Secrets → `core/security.py` auf RS256/ES256 erweitern
-  (`pyjwt[crypto]`); die Endpunkte bleiben unverändert.
-- **Die Statistik ist noch nirgends sichtbar.** `Preisbewertung` steckt im
-  `LaufErgebnis` und im Log, aber es gibt keinen Endpunkt dafür. Das ist
-  Absicht — M8 (Push) und M9 (Detailansicht) sind die Abnehmer.
-- **Die 90 Tage sind ein fester Wert**, keine Einstellung. Reicht vorerst;
-  wenn er verstellbar sein soll, gehört er in `config.py`.
-- **Nur ein Suchdatum pro Alarm** — der Datums-Fächer über den Zeitraum fehlt
-  noch. `alarm_zu_suchanfragen()` gibt deshalb schon eine Liste zurück.
+  Amadeus-Zugang: einmal echt suchen, Antwort nach `tests/fixtures/` schreiben.
+  Details: `backend/tests/fixtures/README.md`.
+- **Falls Supabase nur asymmetrische Schlüssel anbietet** (neuere Projekte:
+  „JWT Signing Keys", ECC/RSA statt „Legacy JWT Secret") →
+  `core/security.py` auf RS256/ES256 erweitern (`pyjwt[crypto]`). Betrifft
+  genau diese Datei; die Endpunkte kennen nur `CurrentUser`.
+- **Die 90 Tage der Statistik sind fest**, keine Einstellung.
+- **Nur ein Suchdatum pro Alarm** — der Datums-Fächer fehlt noch.
+  `alarm_zu_suchanfragen()` gibt deshalb schon eine Liste zurück.
 - **Kein Aufräumen alter Daten.** `flight_observations` wächst pro Alarm und
-  Lauf (4 Zeilen/Tag bei 6-Stunden-Takt). Kandidat für M11/M12.
+  Lauf. Kandidat für M11/M12.
 - **`GET /alerts` ohne Paginierung.** Bei 5 Alarmen egal.
 - **Token ohne `email`** → 401, weil `users.email` NOT NULL ist.
 - **`device_tokens` wird in M8 angepasst** (Web-Push statt APNs) — eigene
@@ -162,43 +176,53 @@ Ausführlich in `CLAUDE.md`; hier die Merksätze:
 - **Postgres in dieser Sandbox:** kein Docker-Daemon, aber per apt vorhanden
   (`/usr/lib/postgresql/16/bin`, `initdb`/`pg_ctl` als User `postgres`). Das
   Datenverzeichnis muss für `postgres` erreichbar sein —
-  `/var/lib/postgresql/<name>` geht, `/tmp/claude-*` nicht. Dann
-  `DATABASE_URL=postgresql+asyncpg://flugalarm@127.0.0.1:5432/flugalarm`.
-  **Überlebt keinen Container-Neustart** — lauter `s` in `pytest` heißt: nur
-  die DB ist weg, nicht der Code kaputt.
-- **Stolperfalle SQLAlchemy async:** Nach `session.rollback()` sind **alle**
-  Objekte der Session „abgelaufen". Der nächste Attributzugriff will still
-  nachladen — im asynchronen Betrieb ergibt das `MissingGreenlet`. Deshalb
-  merkt sich `pruefe_faellige_alarme()` nur die IDs und lädt jeden Alarm mit
-  `await session.get(...)` neu. Wer Tests um Fehlerfälle herum schreibt, muss
-  IDs **vor** dem Rollback festhalten.
-- **Stolperfalle Statistik-Tests:** `hole_vergleichspreise()` fragt bewusst
-  über alle Nutzer ab. Tests dürfen sich deshalb keine feste Strecke teilen —
+  `/var/lib/postgresql/<name>` geht, `/tmp/claude-*` nicht. **Überlebt keinen
+  Container-Neustart** — lauter `s` in `pytest` heißt: nur die DB ist weg,
+  nicht der Code kaputt.
+- **Stolperfalle SQLAlchemy async:** Nach `session.rollback()` sind alle
+  Objekte der Session „abgelaufen"; der nächste Attributzugriff ergibt
+  `MissingGreenlet`. Deshalb merkt sich `pruefe_faellige_alarme()` nur IDs.
+  Wer Tests um Fehlerfälle schreibt, muss IDs **vor** dem Rollback festhalten.
+- **Stolperfalle Statistik-Tests:** `hole_vergleichspreise()` fragt über alle
+  Nutzer ab. Tests dürfen sich keine feste Strecke teilen —
   `tests/integration/test_price_stats.py` würfelt sie pro Test aus.
+- **Stolperfalle: committete Daten in der Test-Datenbank.** Die
+  Integrationstests rollen ihre eigenen Daten zurück, aber
+  `finde_faellige_alarme()` sucht bewusst über **alle** Nutzer. Bleibt aus
+  einem Handversuch (Demo-Skript, abgebrochener Browsertest) ein aktiver
+  Alarm liegen, schlagen in `tests/integration/test_pruflauf.py` etwa sieben
+  Tests mit „Left contains one more item" fehl — **ohne dass am Code etwas
+  kaputt ist**. Genau das ist in dieser Session passiert. Prüfen mit
+  `SELECT * FROM price_alerts;`, aufräumen mit `TRUNCATE users CASCADE;`.
 - Keine echten Bugs bekannt.
 
 ## Exakter Arbeitspunkt
 
-M7 abgeschlossen, committet und gepusht. Nichts ist halbfertig.
+M4 abgeschlossen, committet und gepusht. Nichts ist halbfertig.
 
-## Nächste Schritte — Empfehlung: M4 (Web-Client)
+## Nächste Schritte — M8 (Push-Benachrichtigungen)
 
-Das Backend hat jetzt fünf Meilensteine Vorsprung vor dem Client. Man kann
-nichts davon sehen oder ausprobieren, ohne `curl` zu tippen — und die
-nächsten Backend-Schritte (Push) lassen sich ohne Client ohnehin nicht
-sinnvoll abnehmen.
+Der letzte fehlende Teil der Kernfunktion: Bisher merkt niemand, wenn ein
+Preis passt. Reihenfolge:
 
-1. **Supabase-Projekt anlegen** (Nutzer-Aktion, blockiert sonst alles).
-2. **Login im Browser** — `supabase-js` per CDN, kein Node (`CLAUDE.md`:
-   kein Framework, bis Formulare es verlangen).
-3. **Token mitschicken** — `Authorization: Bearer` an `/me` und `/alerts`.
-4. **Alarmliste + Anlegen-Formular**, Lade-/Leer-/Fehlerzustand sichtbar,
-   Fehler als verständlicher deutscher Text, nie ein Statuscode.
-5. **Gegen das echte Backend testen** (`make dev` + `make web`).
+1. **PWA-Grundlage** — `manifest.json`, Icons, Service Worker. Ohne das kann
+   iOS gar keine Push empfangen.
+2. **`device_tokens` umbauen** — Web-Push-Subscription (`endpoint`, `p256dh`,
+   `auth`) statt APNs-Token, `environment` entfällt. **Eigene Migration.**
+3. **VAPID-Schlüsselpaar** erzeugen, privaten Schlüssel in `backend/.env`,
+   öffentlichen an den Client ausliefern.
+4. **Endpunkt zum Anmelden der Subscription** (`POST /push/subscriptions`).
+5. **Versand im Worker** mit `pywebpush`, nach dem Prüflauf.
+6. **Dedupe + Bremsen:** `notification_logs.dedupe_key` per
+   `INSERT … ON CONFLICT DO NOTHING`, dazu Abkühlphase und 5-%-Regel
+   (`docs/PROJEKTPLAN.md` §4 ⑨).
+7. **Nachrichtentext** aus der `Preisbewertung` von M7 — deterministischer
+   Satz-Baukasten, Claude kommt erst in M10 dazu.
 
-**Alternative:** Wer lieber im Backend bleibt, nimmt **M8 (Push)** —
-`device_tokens` auf Web-Push umstellen (eigene Migration), VAPID-Schlüssel,
-`pywebpush`, Dedupe über `notification_logs.dedupe_key`, Abkühlphase und
-5-%-Regel. Die Einordnung aus M7 liefert dafür schon den Inhalt der Nachricht.
+**Zum Testen auf dem iPhone braucht es HTTPS** (außer auf localhost) und
+„Zum Home-Bildschirm hinzufügen". Ein Tunnel wie `cloudflared` oder ein
+frühes Deployment ist dafür der einfachste Weg — das wäre dann faktisch ein
+vorgezogenes Stück M12.
 
-Danach: M9–M12.
+Danach: M9 (Detailansicht mit Preisverlauf), M10 (Claude-Texte), M11
+(Freitext-Eingabe), M12 (Deployment).

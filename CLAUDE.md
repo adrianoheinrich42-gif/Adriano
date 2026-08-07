@@ -72,7 +72,10 @@ backend/scripts/     amadeus_suche.py — Handsuche (uv run python -m scripts.�
 backend/tests/       *.py ohne DB/Netz, integration/ mit DB, fixtures/ gespeicherte
                      Amadeus-Antwort (Herkunft: fixtures/README.md lesen!),
                      attrappen.py (Doppelgänger der Flugsuche + Baukästen)
-web/                 Frontend: index.html, app.js, config.js, styles.css
+web/                 Frontend (M4): index.html, app.js (Ansichten), api.js (nur
+                     hier fetch aufs Backend), auth.js (Supabase-Anmeldung),
+                     format.js (Cent↔Euro, Datum), config.js, styles.css
+docs/SUPABASE-EINRICHTEN.md  Anleitung ohne Vorwissen (Nutzer-Aktion)
 docs/PROJEKTPLAN.md  Referenz: Architektur, Datenmodell, Meilensteine, Risiken
 docs/PLATTFORM-WEB.md  iOS→Web-Wechsel + alle Deltas zum Projektplan
 HANDOFF.md           aktueller Arbeitsstand (bei jeder Session aktuell halten)
@@ -102,8 +105,18 @@ Statistik), `flight_offers` (konkrete Angebote), `device_tokens` (Push-Ziel),
 - **Migrationen:** immer über Alembic. Erzeugte Migration **lesen** vor dem
   Anwenden. Angewendete Migration **nie** editieren → neue Revision. Neues Modell
   → Import in `app/models/__init__.py` (sonst leere Migration).
-- **Frontend:** kein Framework/Node einführen, bis Formulare es verlangen.
-  Fehler dem Nutzer als verständlicher deutscher Text zeigen, nie Statuscode.
+- **Frontend:** kein Framework/Node einführen. Auch `supabase-js` nicht — die
+  Anmeldung sind drei `fetch`-Aufrufe (`web/auth.js`). Fehler dem Nutzer als
+  verständlicher deutscher Text zeigen, nie Statuscode.
+- **Nur `web/api.js` ruft `fetch` aufs eigene Backend auf.** Eine Stelle für
+  Token, Zeitlimit und Fehlerübersetzung.
+- **Im Frontend `textContent`, nie `innerHTML`.** Auch bei Daten aus dem
+  eigenen Backend — HTML aus Daten zusammenkleben ist die Gewohnheit, aus der
+  später Lücken werden.
+- **`[hidden] { display: none !important }` muss im CSS stehen.** Die App
+  schaltet Ansichten über das `hidden`-Attribut um; jede eigene
+  `display`-Regel (z. B. `.kopf { display: flex }`) würde `hidden` sonst
+  aushebeln. Genau dieser Fehler ist im Browsertest aufgefallen.
 - **Sekrete-Check vor jedem Commit:** kein `.env`, kein `.p8`, kein Key im Diff.
 
 ## Wichtige Entscheidungen (Kurzbegründung)
@@ -112,6 +125,15 @@ Statistik), `flight_offers` (konkrete Angebote), `device_tokens` (Push-Ziel),
   iOS 16.4) läuft; spart 99 €/Jahr Apple. Details `docs/PLATTFORM-WEB.md`.
 - **Supabase Auth statt Eigenbau:** Login/Reset/Hashing sind fehleranfällig;
   Backend prüft nur das JWT.
+- **Der Client kennt beim Anmelden eine zweite URL** (Supabase) — die einzige
+  bewusste Ausnahme von Leitplanke 1. Ginge der Login durchs eigene Backend,
+  liefe das **Passwort über unseren Server**; genau das soll Supabase Auth
+  verhindern. Alle *Daten* laufen weiterhin nur übers eigene Backend.
+  Begründung in `docs/PLATTFORM-WEB.md`.
+- **Der Supabase-`anon`-Schlüssel darf in `web/config.js` stehen.** Er ist
+  dafür gemacht, öffentlich zu sein, und erlaubt allein nur einen
+  Anmeldeversuch — anders als Amadeus-/Anthropic-/VAPID-Schlüssel, die
+  Leitplanke 2 meint. Der `service_role`-Schlüssel gehört **nie** dorthin.
 - **APScheduler (ab M6), 1 Worker-Instanz:** einfach, kein Redis. Grenze: zwei
   Instanzen = doppelte Läufe → dann externer Cron + `FOR UPDATE SKIP LOCKED`.
 - **`/health` gibt immer HTTP 200** (Zustand im Body) — hält den Client simpel;
@@ -219,6 +241,11 @@ DB: `docker compose up -d db`. Kürzel im **Makefile** (`make help`).
   starten) — so lässt sich der DB-Pfad echt testen.
 - **Ohne DB:** `pytest` meldet `142 passed, 66 skipped` (Integrationstests
   überspringen sich selbst). Mit DB: `208 passed`. Beides ist „grün".
+- **Frontend prüfen geht wirklich:** Chromium und Playwright sind vorhanden
+  (`/opt/pw-browsers`, `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`, kein
+  `playwright install`). Supabase lässt sich per `page.route("**/auth/v1/**")`
+  ersetzen, das Token mit `SUPABASE_JWT_SECRET` selbst signieren — dann prüft
+  das Backend unverändert scharf und **kein Testcode steht in der App**.
 - **Branch:** der in der Session vorgegebene Entwicklungs-Branch (zuletzt
   `claude/project-handoff-continuation-9lcu5l`, davor
   `claude/project-handoff-continuation-3tzcq4` und

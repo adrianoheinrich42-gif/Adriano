@@ -113,10 +113,46 @@ Die iOS-spezifischen Meilensteine werden zu Web-Meilensteinen. Inhaltlich
 
 Alle übrigen Meilensteine sind unberührt.
 
+## Nachtrag M4: die eine bewusste Ausnahme von Leitplanke 1
+
+Leitplanke 1 sagt: „Der Client kennt nur *eine* URL — das eigene Backend."
+Mit der Anmeldung kennt er jetzt **zwei**: zusätzlich die Supabase-Adresse.
+
+Das ist Absicht und betrifft ausschließlich das Anmelden. Der Grund: Würde der
+Login durch unser Backend laufen, ginge das **Passwort im Klartext über
+unseren Server**. Genau das will man nicht — und es wäre auch der Grund
+zunichte, überhaupt Supabase Auth zu nehmen (Entscheidung aus M2: Login,
+Zurücksetzen und Hashing sind fehleranfällig).
+
+Der Handel:
+
+* ✅ Das Passwort sieht nur Supabase, nie unser Code.
+* ✅ Alle **Daten** — Alarme, Preise, Bewertungen — laufen weiterhin
+  ausschließlich über das eigene Backend. Supabase kennt keinen einzigen
+  Alarm.
+* ❌ Der Client hat eine zweite Abhängigkeit; ist Supabase weg, kann sich
+  niemand neu anmelden. Bereits Angemeldete arbeiten weiter, bis ihr Token
+  abläuft.
+
+**`supabase-js` wird trotzdem nicht benutzt.** Die Bibliothek käme über ein
+fremdes CDN in die Seite; die drei Dinge, die wir brauchen (registrieren,
+anmelden, Token erneuern), sind je ein `fetch` gegen die Supabase-REST-API.
+Damit bleibt es bei „kein Framework, kein Node, keine fremde Abhängigkeit" —
+und es gibt kein CDN, das ausfallen oder mitlesen kann.
+
+Der **`anon`-Schlüssel** in `web/config.js` ist kein Verstoß gegen
+Leitplanke 2. Er ist dafür gemacht, öffentlich zu sein, und erlaubt für sich
+allein nur einen Anmeldeversuch. Gemeint sind mit Leitplanke 2 die
+Amadeus-, Anthropic- und VAPID-Schlüssel — und der `service_role`-Schlüssel,
+der niemals in den Browser gehört. Ausführlich kommentiert in `web/auth.js`.
+
 ## Bereits erledigt
 
 - **M0-Spiegel fürs Web** steht im Ordner `web/`: eine Seite, die den
   Backend-Status abruft und in drei Zuständen (Laden/Erfolg/Fehler) anzeigt.
   Verifiziert gegen das laufende Backend inklusive CORS-Freigabe.
+- **M4** — Anmeldung, Alarmliste und Anlege-Formular. Im echten Chromium
+  gegen das echte Backend geprüft (11 Schritte). Einrichtung von Supabase:
+  `docs/SUPABASE-EINRICHTEN.md`.
 - Der alte `ios/`-Ordner wurde entfernt; er liegt weiterhin in der
   Git-Historie (Commit `def9ae6`), falls je ein Blick nötig ist.
