@@ -1,4 +1,4 @@
-# Web-Frontend (M4 + M8 + M9 + M10)
+# Web-Frontend (M4 + M8 + M9 + M10 + M11)
 
 Die Web-App: anmelden, Preisalarme ansehen, anlegen, pausieren und löschen —
 und Push-Benachrichtigungen empfangen, wenn ein Preis passt.
@@ -50,7 +50,7 @@ Dann im Browser öffnen: <http://localhost:3000>
 | `auth.js` | Anmeldung gegen Supabase; verwaltet das Token und erneuert es |
 | `api.js` | Alle Aufrufe ans eigene Backend; macht aus Statuscodes deutsche Sätze |
 | `format.js` | Geld (Cent ↔ Euro), Datum, „vor 5 Minuten" |
-| `app.js` | Ansichten umschalten und die Liste zeichnen |
+| `app.js` | Ansichten umschalten, Liste zeichnen, Formular (auch per Freitext) |
 | `detail.js` | Detailansicht: Einordnung, Preisverlauf, Angebote |
 | `push.js` | Benachrichtigungen ein- und ausschalten |
 | `sw.js` | Service Worker — läuft, wenn die App geschlossen ist |
@@ -122,3 +122,18 @@ klein „von Claude formuliert".
 eingebaute Satz-Baukasten, und der Hinweis bleibt weg. Dasselbe passiert, wenn
 der Aufruf scheitert oder Claude eine Zahl nennt, die in den berechneten Daten
 nicht vorkommt.
+
+## Formular per Freitext ausfüllen (M11)
+
+Oben im Dialog „Neuer Preisalarm" steht ein Textfeld. „Im Oktober für zwei
+Wochen von München nach Lissabon, höchstens 250 €" füllt nach einem Klick die
+Felder darunter.
+
+**Es legt nichts an.** Der Vorschlag steht im Formular, angelegt wird der
+Alarm erst, wenn du unten auf „Alarm anlegen" drückst — mit einem Blick auf
+die Felder. Ein Sprachmodell kann sich beim Verstehen irren, gerade beim Jahr.
+
+Was das Backend nicht plausibel fand, bleibt leer und steht als Hinweis unter
+dem Textfeld. Ohne Anthropic-Schlüssel meldet der Knopf ehrlich, dass das
+automatische Ausfüllen gerade nicht geht — das Formular selbst funktioniert
+unverändert.

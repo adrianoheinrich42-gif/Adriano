@@ -37,7 +37,7 @@ Vertrauen in die App.
 import logging
 import re
 from dataclasses import dataclass
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from pydantic import BaseModel, Field
 
@@ -45,6 +45,9 @@ from app.config import Settings
 from app.models.price_alert import PriceAlert
 from app.schemas.flight_offer import Flugangebot
 from app.services.price_stats import Einordnung, Preisbewertung
+
+if TYPE_CHECKING:
+    from anthropic import AsyncAnthropic
 
 logger = logging.getLogger(__name__)
 
@@ -270,6 +273,31 @@ def pruefe_text(erklaerung: Erklaertext, fakten: Erklaerfakten) -> str | None:
 # ---------------------------------------------------------------------------
 
 
+def baue_anthropic_client(
+    settings: Settings, http_client: object | None = None
+) -> "AsyncAnthropic":
+    """Der SDK-Client mit den Projekteinstellungen — an einer Stelle.
+
+    Zwei Aufgaben benutzen ihn: das Formulieren hier und das Verstehen in
+    `services/nlp.py` (M11). Ohne diese Funktion stünden Zeitlimit,
+    Wiederholungen und Schlüssel doppelt im Code, und beim nächsten Umstellen
+    würde eine der beiden Stellen vergessen.
+
+    `http_client` ist die Naht für Tests: Damit lässt sich ein
+    `httpx.MockTransport` unterschieben und der Fehlerfall prüfen, **ohne dass
+    irgendetwas ins Netz geht**.
+    """
+    from anthropic import AsyncAnthropic
+
+    zusatz = {"http_client": http_client} if http_client is not None else {}
+    return AsyncAnthropic(
+        api_key=settings.anthropic_api_key,
+        timeout=settings.anthropic_timeout_seconds,
+        max_retries=settings.anthropic_max_retries,
+        **zusatz,  # type: ignore[arg-type]
+    )
+
+
 class Texter(Protocol):
     """Was die Melde-Logik vom Textdienst braucht — mehr nicht.
 
@@ -299,19 +327,8 @@ class ClaudeTexter:
     """
 
     def __init__(self, settings: Settings, http_client: object | None = None) -> None:
-        from anthropic import AsyncAnthropic
-
         self._settings = settings
-        # `http_client` ist die Naht für den Test: Damit lässt sich ein
-        # `httpx.MockTransport` unterschieben und der Fehlerfall („falscher
-        # Schlüssel") prüfen, ohne dass irgendetwas ins Netz geht.
-        zusatz = {"http_client": http_client} if http_client is not None else {}
-        self._client = AsyncAnthropic(
-            api_key=settings.anthropic_api_key,
-            timeout=settings.anthropic_timeout_seconds,
-            max_retries=settings.anthropic_max_retries,
-            **zusatz,  # type: ignore[arg-type]
-        )
+        self._client = baue_anthropic_client(settings, http_client)
 
     async def erklaere(self, fakten: Erklaerfakten) -> Erklaertext:
         antwort = await self._client.messages.parse(

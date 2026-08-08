@@ -89,6 +89,14 @@ async function fehlerAusAntwort(antwort) {
   if (antwort.status === 404) {
     return new ApiFehler("Dieser Alarm existiert nicht mehr.");
   }
+  if (antwort.status === 503) {
+    // Das Backend schickt hier einen fertigen deutschen Satz mit dem nächsten
+    // Schritt („bitte von Hand eintragen"). Der ist besser als jede
+    // allgemeine Meldung, die wir uns hier ausdenken könnten.
+    return new ApiFehler(
+      typeof detail === "string" ? detail : "Dieser Dienst ist gerade nicht verfügbar.",
+    );
+  }
   if (antwort.status >= 500) {
     return new ApiFehler("Auf dem Server ist etwas schiefgelaufen. Bitte später erneut.");
   }
@@ -152,6 +160,9 @@ export const Api = {
   ich: () => rufeAuf("/me"),
   alarme: () => rufeAuf("/alerts"),
   alarmAnlegen: (daten) => rufeAuf("/alerts", { methode: "POST", daten }),
+
+  // M11: erzeugt KEINEN Alarm, sondern nur einen Formularvorschlag.
+  entwurf: (text) => rufeAuf("/alerts/entwurf", { methode: "POST", daten: { text } }),
   alarmAendern: (id, daten) => rufeAuf(`/alerts/${id}`, { methode: "PATCH", daten }),
   alarmLoeschen: (id) => rufeAuf(`/alerts/${id}`, { methode: "DELETE" }),
 

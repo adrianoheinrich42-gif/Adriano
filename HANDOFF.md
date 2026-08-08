@@ -7,7 +7,8 @@ Zuerst `CLAUDE.md` lesen, dann diese Datei, dann `git log` / `git status`.
 Meilenstein-Commits (dazwischen liegen reine Doku-Commits):
 
 ```
-M10 — Claude formuliert die Benachrichtigungstexte  ← neu
+M11 — Freitext-Eingabe: Sprache füllt das Formular vor  ← neu
+836091f M10 — Claude formuliert die Benachrichtigungstexte
 09029bc M9 — Ergebnisanzeige: Detailansicht + Deep-Link
 46005f3 M8 — Push-Benachrichtigungen (Web-Push, PWA)
 b08b5c4 M4 — Web-Client: Anmeldung, Alarmliste, Formular
@@ -23,16 +24,16 @@ def9ae6 M0 — Projektgerüst
 
 ## Wo wir stehen
 
-**M0–M10 fertig.** Der Nutzer kann sich anmelden, Alarme anlegen, bekommt eine
-Push, wenn ein Preis passt — **von Claude formuliert** — und sieht nach dem
-Tippen darauf direkt die Detailansicht mit Einordnung, Preisverlauf und den
-gefundenen Flügen.
+**M0–M11 fertig.** Der Nutzer kann sich anmelden, einen Alarm **in einem Satz
+beschreiben** und das ausgefüllte Formular bestätigen, bekommt eine Push, wenn
+ein Preis passt — von Claude formuliert — und sieht nach dem Tippen darauf
+direkt die Detailansicht mit Einordnung, Preisverlauf und den gefundenen Flügen.
 
-**Noch 2 Meilensteine: M11 und M12.** Freitext-Eingabe, Deployment.
+**Noch ein Meilenstein: M12 (Deployment/Härtung).** Alles andere steht.
 
 Endpunkte: `GET /health` · `GET /me` · `POST/GET/PATCH/DELETE /alerts` ·
-`GET /alerts/{id}/offers` · `GET /alerts/{id}/verlauf` · `GET /offers/{id}` ·
-`GET /push/config` · `POST/DELETE /push/subscriptions`.
+`POST /alerts/entwurf` · `GET /alerts/{id}/offers` · `GET /alerts/{id}/verlauf` ·
+`GET /offers/{id}` · `GET /push/config` · `POST/DELETE /push/subscriptions`.
 Prozesse: API (`app.main:app`) **und** Worker (`app.jobs.worker`).
 
 ## ⚠️ Drei Dinge fehlen, die nur der Nutzer tun kann
@@ -50,11 +51,12 @@ Keins davon blockiert die Entwicklung, alle drei den echten Betrieb:
    (der Worker sagt das beim Start deutlich).
 3. **Amadeus-Zugang** → Konto auf `developers.amadeus.com`,
    `AMADEUS_CLIENT_ID` / `AMADEUS_CLIENT_SECRET` in `backend/.env`.
-4. **Anthropic-Schlüssel** (optional) → Konto auf `console.anthropic.com`,
-   Guthaben aufladen, `ANTHROPIC_API_KEY` in `backend/.env`. **Ohne den
-   Schlüssel läuft alles vollständig weiter** — die Benachrichtigungen
-   formuliert dann der eingebaute Satz-Baukasten. Rechnen musst du mit rund
-   0,1 Cent je verschickter Nachricht.
+4. **Anthropic-Schlüssel** → Konto auf `console.anthropic.com`, Guthaben
+   aufladen, `ANTHROPIC_API_KEY` in `backend/.env`. **Ohne den Schlüssel läuft
+   alles weiter**, nur zwei Bequemlichkeiten fehlen: Die Benachrichtigungen
+   formuliert dann der eingebaute Satz-Baukasten (M10), und das Freitextfeld
+   im Formular meldet ehrlich „gerade nicht verfügbar, bitte von Hand" (M11).
+   Kosten: rund 0,1 Cent je Nachricht, rund 0,25 Cent je Freitext-Auswertung.
 
 ## Was umgesetzt ist
 
@@ -70,9 +72,56 @@ Keins davon blockiert die Entwicklung, alle drei den echten Betrieb:
 - **M8** — Web-Push: `services/push.py`, `api/routes/push.py`, PWA
   (`manifest.json`, `sw.js`, `push.js`, Icons), Migration `22e16687014f`.
 - **M9** — `services/ergebnisse.py`, `schemas/ergebnis.py`, `web/detail.js`.
-- **M10** — siehe nächster Abschnitt.
+- **M10** — `services/claude.py`, Migration `4b42be3a6b6e`.
+- **M11** — siehe nächster Abschnitt.
 
-## Zuletzt geändert — M10 (Claude formuliert die Texte)
+## Zuletzt geändert — M11 (Freitext-Eingabe)
+
+„Im Oktober für zwei Wochen von München nach Lissabon, höchstens 250 €" füllt
+das Alarmformular aus, statt acht Felder von Hand zu tippen.
+
+**Die eine Regel, an der alles hängt:** Der Endpunkt heißt
+`POST /alerts/entwurf` und **legt nichts an**. Er füllt das Formular nur vor;
+bestätigen muss der Mensch mit einem Blick auf die Felder (Projektplan 8.8).
+
+**Neu:** `services/nlp.py` (Protokoll `Auswerter`, `ClaudeAuswerter`,
+Prompt-Bau, `pruefe_kriterien()`), `schemas/nlp.py`, `api/routes/nlp.py`.
+Im Frontend ein Freitextfeld oben im Formular-Dialog (`web/index.html`,
+`fuelleFormular()`/`beiEntwurf()` in `web/app.js`).
+
+**Keine Migration.** M11 speichert nichts — es gibt nichts zu schemaändern.
+
+### Entscheidungen aus M11
+
+- **Kein Alarm entsteht direkt aus Claudes Ausgabe.** Deshalb `entwurf` im
+  Namen, nicht `parse` oder `auto`: Wer die Routenliste liest, soll sofort
+  sehen, dass hier nichts gespeichert wird. Ein Integrationstest zählt vorher
+  und nachher die Alarme.
+- **Die Plausibilitätsprüfung lässt weg statt zu raten.** Datum in der
+  Vergangenheit, Rückreise vor Hinreise, Preis ≤ 0, kaputtes Kürzel → Feld
+  bleibt leer plus ein deutscher Hinweis. Ein leeres Feld sieht der Nutzer,
+  eine still erfundene Zahl nicht.
+- **Zwei Ausnahmen werden gekappt statt verworfen:** Umstiege und
+  Reisendenzahl. Bei „mit 40 Leuten" ist 9 näher am Wunsch als nichts. Bei
+  einem *Datum* wäre dieselbe Logik falsch — deshalb gilt sie nur dort.
+- **Geprüft wird Form, nicht Existenz.** Ob es `XQZ` gibt, ließe sich nur mit
+  einer Flughafentabelle beantworten. Genau deshalb bestätigt der Mensch.
+- **Claude bekommt das heutige Datum mit** (samt Wochentag für „nächstes
+  Wochenende"). Ohne das kann kein Modell „im Oktober" auflösen — das ist die
+  häufigste Ursache für einen Alarm im falschen Jahr.
+- **Kein Fallback, und das ist richtig.** Einen deutschen Satz kann ein
+  Baukasten schreiben, einen Satz *verstehen* nicht. Der Rückfall ist das
+  normale leere Formular: HTTP 503 plus ein Satz, der den nächsten Schritt
+  nennt statt eines Statuscodes.
+- **Der Endpunkt verlangt Anmeldung**, obwohl er nichts speichert — sonst
+  wäre er ein offener Endpunkt auf unsere Anthropic-Rechnung. Aus demselben
+  Grund ist die Eingabe auf 500 Zeichen gedeckelt.
+- **Die Umrechnung Euro ↔ Cent bleibt im Backend.** Der Client trägt nur ein,
+  was er bekommt (Leitplanke 1).
+- **Ein Vorschlag löscht nichts.** `fuelleFormular()` setzt nur Felder, die
+  der Entwurf wirklich nennt — was der Nutzer schon getippt hat, bleibt stehen.
+
+## Davor geändert — M10 (Claude formuliert die Texte)
 
 Bis M9 schrieb ein Satz-Baukasten in Python die Benachrichtigungen. Der bleibt
 — aber im Normalfall formuliert jetzt Claude.
@@ -226,9 +275,25 @@ Ausführlich in `CLAUDE.md`; die Merksätze:
 
 ## Verifizierter Zustand (real nachgeprüft, nicht behauptet)
 
-- **Backend-Tests:** mit DB `315 passed`; ohne DB `189 passed, 126 skipped`.
+- **Backend-Tests:** mit DB `358 passed`; ohne DB `224 passed, 134 skipped`.
   `ruff` und `mypy app` (strict) sauber, `alembic check` ohne Drift.
   **Diese Zahlen sind der Soll-Wert.**
+- **M11 im echten Chromium gegen das echte Backend — 11 Schritte:** Backend
+  läuft echt (Auth, Prüfung, CRUD, Datenbank), nur der Claude-Aufruf ist eine
+  Attrappe.
+  1. Angemeldet, noch keine Alarme
+  2. Formular geöffnet, Freitextfeld da, alle Felder leer
+  3. Satz eingegeben und „Formular ausfüllen lassen" geklickt
+  4. Vorausgefüllt: MUC → LIS, 250,00 €, nur Direktflug, mindestens 14 Tage
+  5. „Weitere Einstellungen" klappt auf — kein unsichtbar gefülltes Feld
+  6. **`GET /alerts` liefert weiterhin 0 Alarme** — der Entwurf hat nichts
+     angelegt
+  7. Erst der Klick auf „Alarm anlegen" erzeugt ihn
+  8. Beim nächsten Öffnen ist alles wieder leer
+  9. Bei simuliertem 503: „Automatisches Ausfüllen ist gerade nicht verfügbar.
+     Bitte trage die Felder von Hand ein." — kein Statuscode im Text
+  10. Danach von Hand ausgefüllt und angelegt: funktioniert unverändert
+  11. Keine JavaScript-Fehler
 - **M10 im echten Chromium gegen das echte Backend — 9 Schritte:** Zwei Alarme
   nebeneinander, einmal antwortet Claude, einmal fällt er aus.
   1. Beide Alarme angelegt und geprüft (Attrappen für Suche, Versand, Claude)
@@ -360,7 +425,8 @@ Ausführlich in `CLAUDE.md`; die Merksätze:
 
 ## Exakter Arbeitspunkt
 
-M10 abgeschlossen, committet und gepusht. Nichts ist halbfertig.
+M11 abgeschlossen, committet und gepusht. Nichts ist halbfertig.
+**Nur noch M12 ist offen.**
 
 ## Nächste Schritte — Empfehlung: M12 (Deployment)
 
@@ -378,27 +444,29 @@ Kleinster Weg dahin:
 4. Auf dem iPhone „Zum Home-Bildschirm hinzufügen", Benachrichtigungen
    einschalten, Alarm mit hohem Limit anlegen → es sollte klingeln.
 
-**Alternative: M11 (Freitext-Eingabe).** „Im Oktober für zwei Wochen nach
-Lissabon, höchstens 250 €" → Structured Output → **vorausgefülltes Formular,
-das der Nutzer bestätigen muss**. Die Hälfte der Arbeit steht schon:
-`services/claude.py` hat den Client, das Protokoll und das Fehlermuster; neu
-sind ein zweites Pydantic-Schema, ein zweiter Prompt und die
-Plausibilitätsprüfung (Datum in der Zukunft? IATA-Code echt?). Wichtig laut
-Projektplan 8.8: **Kein Alarm entsteht direkt aus Claudes Ausgabe.**
-
-Was M10 dafür hinterlässt: Der Aufruf schlägt bei M11 im Anfrage-Pfad zu,
-nicht im Worker — dort ist das Zeitlimit von 8 Sekunden zu großzügig, und der
-Fallback ist kein Textbaustein, sondern das leere Formular mit einem
-ehrlichen Hinweis.
+**Was daran alleine geht und was nicht.** Die *Härtung* aus M12 — Rate
+Limiting, strukturiertes Logging ohne personenbezogene Daten, Aufräumen alter
+Beobachtungen, `DELETE /me` — ist normale Programmierarbeit und braucht kein
+fremdes Konto. Das *Deployment* dagegen hängt an drei Anmeldungen, die nur der
+Nutzer machen kann: Hoster, Supabase, Amadeus.
 
 ### Noch nicht überprüft
 
 **Claude hat in diesem Projekt noch nie wirklich geantwortet.** Alle Tests
 laufen gegen Attrappen und einen `MockTransport`; ein `ANTHROPIC_API_KEY`
 liegt nicht vor. Geprüft ist damit die gesamte Verdrahtung und jeder
-Fehlerpfad — offen ist die Textqualität: Hält sich Haiku 4.5 an den Ton, und
-wie oft verwirft `pruefe_text()` zu Recht oder zu Unrecht? Erster Schritt mit
-Schlüssel: `make worker` starten, einen Alarm melden lassen, `SELECT title,
-body, text_quelle FROM notification_logs ORDER BY sent_at DESC LIMIT 5;`.
-Steht dort dauerhaft `baukasten`, greift der Fallback still — dann ins
-Worker-Log sehen, dort steht der Grund.
+Fehlerpfad — offen ist die **Qualität** beider Aufgaben.
+
+Zwei Dinge zum Nachmessen, sobald der Schlüssel da ist:
+
+1. **Textqualität (M10).** `make worker` starten, einen Alarm melden lassen,
+   dann `SELECT title, body, text_quelle FROM notification_logs ORDER BY
+   sent_at DESC LIMIT 5;`. Steht dort dauerhaft `baukasten`, greift der
+   Fallback still — der Grund steht im Worker-Log.
+2. **Sprachverständnis (M11).** Das eigentliche Golden-Set aus Projektplan 9.4
+   fehlt noch: rund 20 deutsche Beispielsätze mit erwarteter Struktur, gegen
+   den **echten** Aufruf geprüft. Das kostet Geld und gehört deshalb nicht in
+   die normale Testreihe, sondern in ein Skript, das man vor Prompt-Änderungen
+   von Hand laufen lässt. Am wichtigsten dabei: Trifft „im Oktober" das
+   richtige Jahr, und werden Städtenamen jenseits der 15 Beispiele im Prompt
+   zu brauchbaren Kürzeln?

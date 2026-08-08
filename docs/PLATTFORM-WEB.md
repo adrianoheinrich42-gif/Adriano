@@ -173,5 +173,9 @@ der niemals in den Browser gehört. Ausführlich kommentiert in `web/auth.js`.
   Der Satz unter dem Preis wurde bis M9 im Browser zusammengesetzt, was
   Leitplanke 1 widersprach. Neu ist nur eine kleine Fußzeile „von Claude
   formuliert", damit erkennbar bleibt, wer geschrieben hat.
+- **M11** — Das SwiftUI-Freitextfeld aus der Meilenstein-Tabelle oben ist ein
+  `<textarea>` im Formular-Dialog geworden. Inhaltlich unverändert: Der Text
+  geht ans Backend, zurück kommen geprüfte Felder, und **bestätigen muss der
+  Nutzer**.
 - Der alte `ios/`-Ordner wurde entfernt; er liegt weiterhin in der
   Git-Historie (Commit `def9ae6`), falls je ein Blick nötig ist.

@@ -23,6 +23,7 @@ from app.services.amadeus import (
     normalisiere_antwort,
 )
 from app.services.claude import Erklaerfakten, Erklaertext
+from app.services.nlp import Suchkriterien
 from app.services.push import Nachricht
 
 FIXTURE = Path(__file__).parent / "fixtures" / "amadeus_flight_offers_muc_bcn.json"
@@ -203,6 +204,30 @@ class TexterAttrappe:
 
     async def erklaere(self, fakten: Erklaerfakten) -> Erklaertext:
         self.fakten.append(fakten)
+        if self._fehler is not None:
+            raise self._fehler
+        return self.antwort
+
+
+class AuswerterAttrappe:
+    """Verhält sich wie Claudes Sprachverständnis, redet aber mit niemandem.
+
+    Merkt sich Eingabe und Datum (`self.anfragen`) — so lässt sich prüfen,
+    dass das **heutige Datum wirklich mitgeschickt** wird. Ohne das kann kein
+    Modell „im Oktober" auflösen, und der Alarm landet im falschen Jahr.
+    """
+
+    def __init__(
+        self,
+        antwort: Suchkriterien | None = None,
+        fehler: Exception | None = None,
+    ) -> None:
+        self.antwort = antwort or Suchkriterien()
+        self._fehler = fehler
+        self.anfragen: list[tuple[str, date]] = []
+
+    async def werte_aus(self, eingabe: str, heute: date) -> Suchkriterien:
+        self.anfragen.append((eingabe, heute))
         if self._fehler is not None:
             raise self._fehler
         return self.antwort

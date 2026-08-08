@@ -438,7 +438,88 @@ async function loescheAlarm(alarm) {
 function oeffneDialog() {
   zeigeFehler($("formularFehler"), "");
   $("alarmFormular").reset();
+  $("entwurfHinweise").hidden = true;
   $("alarmDialog").showModal();
+}
+
+/**
+ * Die Felder eines Backend-Entwurfs ins Formular eintragen (M11).
+ *
+ * **Nur eintragen, nicht anlegen.** Der Nutzer sieht danach ein ausgefülltes
+ * Formular und drückt selbst auf „Alarm anlegen" — genau das verlangt
+ * Projektplan 8.8, weil ein Sprachmodell sich beim Verstehen irren kann.
+ *
+ * Umgekehrt zu `formularAlsAlarm()`: Dort werden Formularwerte zu API-Feldern,
+ * hier API-Felder zu Formularwerten. Deshalb steht beides in derselben Datei.
+ * Was der Entwurf nicht nennt, bleibt unangetastet — ein Vorschlag darf
+ * nichts löschen, was der Nutzer schon getippt hat.
+ */
+function fuelleFormular(felder) {
+  const setze = (id, wert) => {
+    if (wert !== undefined && wert !== null) $(id).value = wert;
+  };
+  const schalte = (id, wert) => {
+    if (typeof wert === "boolean") $(id).checked = wert;
+  };
+
+  setze("origin", felder.origin);
+  setze("destination", felder.destination);
+  setze("earliest", felder.earliest_departure_date);
+  setze("latest", felder.latest_return_date);
+  setze("minTage", felder.min_trip_duration_days);
+  setze("maxTage", felder.max_trip_duration_days);
+  setze("adults", felder.adults);
+  schalte("gepaeck", felder.include_checked_bag);
+  schalte("nachtflug", felder.avoid_night_flights);
+
+  // Cent → Euro: die Gegenrichtung von `euroNachCent()` beim Absenden.
+  if (felder.max_price_cents !== undefined) {
+    $("preis").value = (felder.max_price_cents / 100).toFixed(2).replace(".", ",");
+  }
+  if (felder.max_stops !== undefined) $("stops").value = String(felder.max_stops);
+
+  // Sind Reisedauer-Felder dabei, klappt der Bereich auf — sonst stünde dort
+  // ein ausgefülltes Feld, das niemand sieht.
+  const versteckt = ["min_trip_duration_days", "max_trip_duration_days", "adults"];
+  if (versteckt.some((feld) => felder[feld] !== undefined)) {
+    $("alarmFormular").querySelector("details").open = true;
+  }
+}
+
+async function beiEntwurf() {
+  const text = $("freitext").value.trim();
+  const knopf = $("entwurfKnopf");
+  const hinweise = $("entwurfHinweise");
+
+  zeigeFehler($("formularFehler"), "");
+  hinweise.hidden = true;
+
+  if (text.length < 3) {
+    zeigeFehler($("formularFehler"), "Bitte beschreibe deine Reise in ein paar Worten.");
+    return;
+  }
+
+  knopf.disabled = true;
+  knopf.textContent = "Wird gelesen …";
+  try {
+    const entwurf = await Api.entwurf(text);
+    fuelleFormular(entwurf.felder);
+
+    // Die Hinweise sagen, was NICHT übernommen wurde. Ein leeres Feld ohne
+    // Erklärung wäre nicht von „hat er nicht erwähnt" zu unterscheiden.
+    if (entwurf.hinweise.length > 0) {
+      hinweise.textContent = entwurf.hinweise.join(" ");
+      hinweise.hidden = false;
+    }
+  } catch (fehler) {
+    if (fehler instanceof SitzungAbgelaufen) {
+      $("alarmDialog").close();
+    }
+    behandle(fehler, $("formularFehler"));
+  } finally {
+    knopf.disabled = false;
+    knopf.textContent = "Formular ausfüllen lassen";
+  }
 }
 
 /**
@@ -516,6 +597,7 @@ function verdrahte() {
   $("zurueckKnopf").addEventListener("click", () => setzeAnkerUndZurueck());
   window.addEventListener("hashchange", beiAnkerwechsel);
   $("alarmFormular").addEventListener("submit", beiSpeichern);
+  $("entwurfKnopf").addEventListener("click", beiEntwurf);
   $("abbrechenKnopf").addEventListener("click", () => $("alarmDialog").close());
 }
 

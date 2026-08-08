@@ -156,6 +156,23 @@
       <form id="alarmFormular" method="dialog" novalidate>
         <h2>Neuer Preisalarm</h2>
 
+        <!-- M11: Freitext füllt das Formular nur VOR. Angelegt wird nichts,
+             solange der Nutzer nicht unten auf „Alarm anlegen" drückt. -->
+        <div class="entwurf">
+          <label for="freitext">Beschreib deine Reise (optional)</label>
+          <textarea
+            id="freitext"
+            name="freitext"
+            rows="2"
+            maxlength="500"
+            placeholder="Im Oktober für zwei Wochen von München nach Lissabon, höchstens 250 €"
+          ></textarea>
+          <button class="btn btn--schlicht" id="entwurfKnopf" type="button">
+            Formular ausfüllen lassen
+          </button>
+          <p id="entwurfHinweise" class="hinweis" hidden></p>
+        </div>
+
         <div class="paar">
           <div>
             <label for="origin">Von (Flughafen-Kürzel)</label>

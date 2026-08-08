@@ -60,16 +60,19 @@ backend/app/
   db.py              async Engine/Session, is_database_reachable()
   api/deps.py        get_token_claims (ohne DB) + get_current_user / CurrentUser
   api/routes/        health.py, auth.py (GET /me), price_alerts.py (CRUD /alerts),
-                     push.py (M8), ergebnisse.py (M9: /offers, /verlauf)
+                     push.py (M8), ergebnisse.py (M9: /offers, /verlauf),
+                     nlp.py (M11: POST /alerts/entwurf — legt nichts an)
   core/security.py   JWT-Prüfung der Supabase-Token (HS256)
   models/            6 SQLAlchemy-Tabellen (+ mixins.py, __init__ importiert alle)
-  schemas/           price_alert.py (API-Ein/Ausgabe), flight_offer.py (intern)
+  schemas/           price_alert.py (API-Ein/Ausgabe), flight_offer.py (intern),
+                     ergebnis.py (M9), nlp.py (M11: Entwurf)
   services/          users.py, price_alerts.py, amadeus.py (Client + Normalisierung),
                      pruflauf.py (M6: reine Funktionen + Orchestrierung),
                      price_stats.py (M7: Median/Abweichung + Vergleichsabfrage),
                      push.py (M8: Textbaukasten, Bremsen, Web-Push-Versand),
                      ergebnisse.py (M9: Angebote + Preisverlauf lesen),
-                     claude.py (M10: Protokoll Texter, Prompt, Antwortprüfung)
+                     claude.py (M10: Protokoll Texter, Prompt, Antwortprüfung),
+                     nlp.py (M11: Sprache → Suchkriterien + Plausibilitätsprüfung)
   jobs/worker.py     M6: APScheduler-Prozess, ruft den Prüflauf im Takt auf
   alembic/           env.py (async, URL aus config), versions/ (2 Migrationen)
 backend/scripts/     amadeus_suche.py — Handsuche, vapid_schluessel.py (M8)
@@ -266,6 +269,27 @@ Statistik), `flight_offers` (konkrete Angebote), `device_tokens` (Push-Ziel),
 - **`localhost` und `127.0.0.1` sind für den Browser zwei Herkünfte.** Beide
   stehen in `cors_origins`; sonst meldet die App „Keine Verbindung zum
   Server", während im Backend-Log ein 200 steht.
+- **Kein Alarm entsteht direkt aus Claudes Ausgabe** (M11, Projektplan 8.8).
+  Der Endpunkt heißt `POST /alerts/entwurf` und **speichert nichts**; er füllt
+  nur das Formular vor, bestätigen muss der Mensch. Structured Output
+  garantiert die Form, nicht den Inhalt — „im Oktober" kann leicht im falschen
+  Jahr landen.
+- **Die Plausibilitätsprüfung lässt weg statt zu raten** (`pruefe_kriterien`).
+  Ein leeres Feld sieht der Nutzer, eine still erfundene Zahl nicht. Zwei
+  Ausnahmen, die gekappt statt verworfen werden: Umstiege und Reisendenzahl —
+  bei „40 Leuten" ist 9 näher am Wunsch als nichts.
+- **Sie prüft Form, nicht Existenz.** Ob es den Flughafen `XQZ` gibt, ließe
+  sich nur mit einer Flughafentabelle beantworten. Genau deshalb bestätigt der
+  Nutzer.
+- **Claude bekommt beim Verstehen das heutige Datum mitgeschickt.** Ohne das
+  kann kein Modell „im Oktober" auflösen — es weiß nicht, ob gerade September
+  oder November ist. Häufigste Ursache für Alarme im falschen Jahr.
+- **Bei M11 gibt es keinen Fallback, und das ist richtig.** Einen deutschen
+  Satz kann ein Baukasten schreiben, einen Satz *verstehen* nicht. Der
+  Rückfall ist das normale leere Formular (HTTP 503 + verständlicher Satz).
+- **Der Entwurfs-Endpunkt verlangt Anmeldung**, obwohl er nichts speichert —
+  sonst wäre er ein offener Endpunkt auf unsere Anthropic-Rechnung. Aus
+  demselben Grund ist die Eingabe auf 500 Zeichen gedeckelt.
 - **Zwei Eigenheiten der Amadeus-API:** `maxPrice` nimmt nur ganze
   Währungseinheiten (wir runden **ab**, nie über das Nutzerlimit), und es gibt
   keinen „max. N Umstiege"-Parameter — nur `nonStop`. Der Rest wird nach dem
@@ -304,8 +328,8 @@ DB: `docker compose up -d db`. Kürzel im **Makefile** (`make help`).
   Umgebung hat oft keinen Docker-Daemon, aber Postgres ist per apt installierbar
   (`/usr/lib/postgresql/16/bin`, mit `initdb`/`pg_ctl` als User `postgres`
   starten) — so lässt sich der DB-Pfad echt testen.
-- **Ohne DB:** `pytest` meldet `189 passed, 126 skipped` (Integrationstests
-  überspringen sich selbst). Mit DB: `315 passed`. Beides ist „grün".
+- **Ohne DB:** `pytest` meldet `224 passed, 134 skipped` (Integrationstests
+  überspringen sich selbst). Mit DB: `358 passed`. Beides ist „grün".
 - **Frontend prüfen geht wirklich:** Chromium und Playwright sind vorhanden
   (`/opt/pw-browsers`, `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`, kein
   `playwright install`). Supabase lässt sich per `page.route("**/auth/v1/**")`
