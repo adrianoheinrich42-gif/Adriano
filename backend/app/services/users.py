@@ -8,9 +8,11 @@ seine Zeile, sobald er das erste Mal etwas aufruft.
 """
 
 import uuid
+from typing import Any, cast
 
-from sqlalchemy import func
+from sqlalchemy import delete, func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
@@ -44,3 +46,29 @@ async def get_or_create_user(session: AsyncSession, user_id: uuid.UUID, email: s
     user = result.scalar_one()
     await session.commit()
     return user
+
+
+async def loesche_nutzer(session: AsyncSession, user_id: uuid.UUID) -> bool:
+    """Konto löschen — und mit ihm restlos alles (M12, DSGVO).
+
+    Ein einziges `DELETE` auf `users` reicht, weil **jede** abhängige Tabelle
+    per `ON DELETE CASCADE` an dieser Zeile hängt: Alarme, Beobachtungen,
+    Angebote, Push-Ziele, Versandprotokolle. Genau dafür wurde die Regel in M1
+    gesetzt (`CLAUDE.md`: „ON DELETE CASCADE ab `users` — Konto löschen =
+    alles weg"). Hier zahlt sich das aus: Das Löschrecht ist eine Zeile SQL
+    statt einer Liste, die man beim nächsten neuen Tabellchen vergisst.
+
+    **Der Supabase-Zugang bleibt bestehen.** Wir löschen unsere Daten; das
+    Anmeldekonto gehört Supabase und wird dort gelöscht. Meldet sich derselbe
+    Mensch danach noch einmal an, entsteht beim ersten Request eine frische,
+    leere Nutzer-Zeile — richtig so, aber erwähnenswert.
+
+    Gibt zurück, ob wirklich etwas gelöscht wurde.
+    """
+    # `cast`: `execute()` ist allgemein als `Result` typisiert, bei einem
+    # DELETE aber ein `CursorResult` — nur der kennt `rowcount`.
+    ergebnis = cast(
+        "CursorResult[Any]", await session.execute(delete(User).where(User.id == user_id))
+    )
+    await session.commit()
+    return bool(ergebnis.rowcount)

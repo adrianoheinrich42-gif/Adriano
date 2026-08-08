@@ -158,6 +158,8 @@ async function rufeAuf(pfad, { methode = "GET", daten = null, ohneToken = false 
 export const Api = {
   status: () => rufeAuf("/health", { ohneToken: true }),
   ich: () => rufeAuf("/me"),
+  // M12: löscht Konto und alles daran (DSGVO). Nicht rückgängig zu machen.
+  kontoLoeschen: () => rufeAuf("/me", { methode: "DELETE" }),
   alarme: () => rufeAuf("/alerts"),
   alarmAnlegen: (daten) => rufeAuf("/alerts", { methode: "POST", daten }),
 

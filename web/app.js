@@ -586,6 +586,49 @@ async function beiSpeichern(ereignis) {
   }
 }
 
+// --- Konto löschen (M12, DSGVO) ---------------------------------------------
+
+/**
+ * Konto und alle Daten löschen.
+ *
+ * **Zwei Rückfragen, und die zweite verlangt Tippen.** Das ist keine Schikane:
+ * Der Vorgang ist endgültig, es gibt keinen Papierkorb und kein
+ * Zurückholen. Ein einzelnes `confirm()` klickt man versehentlich weg; ein
+ * getipptes Wort nicht.
+ *
+ * Die Rückfrage steht hier in der Oberfläche und nicht in der API — der
+ * Endpunkt soll tun, was er heißt.
+ */
+async function beiKontoLoeschen() {
+  if (!confirm("Konto wirklich löschen? Alle Alarme, Funde und Einstellungen sind danach weg.")) {
+    return;
+  }
+  const bestaetigung = prompt('Zum Bestätigen bitte LÖSCHEN eintippen:');
+  if (bestaetigung?.trim().toUpperCase() !== "LÖSCHEN") return;
+
+  try {
+    await Api.kontoLoeschen();
+  } catch (fehler) {
+    if (!(fehler instanceof SitzungAbgelaufen)) {
+      behandle(fehler, $("listenFehler"));
+      return;
+    }
+  }
+
+  // Danach abmelden: Das Token gilt bei Supabase weiter, hier gibt es aber
+  // nichts mehr, worauf es zeigen könnte. Ohne diesen Schritt stünde die App
+  // angemeldet vor einer leeren Liste.
+  await melde_ab();
+  setzeAnker("");
+  zeigeAnmeldung();
+
+  const hinweis = $("anmeldeHinweis");
+  hinweis.textContent =
+    "Dein Konto und alle Daten wurden gelöscht. Dein Zugang bei Supabase besteht weiter — " +
+    "du kannst dich jederzeit neu anmelden und fängst dann bei null an.";
+  hinweis.hidden = false;
+}
+
 // --- Start ------------------------------------------------------------------
 
 function verdrahte() {
@@ -598,6 +641,7 @@ function verdrahte() {
   window.addEventListener("hashchange", beiAnkerwechsel);
   $("alarmFormular").addEventListener("submit", beiSpeichern);
   $("entwurfKnopf").addEventListener("click", beiEntwurf);
+  $("kontoLoeschenKnopf").addEventListener("click", beiKontoLoeschen);
   $("abbrechenKnopf").addEventListener("click", () => $("alarmDialog").close());
 }
 

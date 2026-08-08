@@ -21,19 +21,23 @@ import signal
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from app.config import Settings, get_settings
+from app.core.logging import richte_logging_ein
 from app.db import SessionFactory, engine
 from app.services.amadeus import AmadeusClient, Flugsuche
+from app.services.aufraeumen import loesche_alte_daten
 from app.services.claude import ClaudeTexter, Texter
 from app.services.pruflauf import LaufBericht, pruefe_faellige_alarme
 from app.services.push import PushVersand, WebPushVersand
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)-8s %(name)s | %(message)s",
-)
+# Wie in `app/main.py`: der Formatierer aus `core/logging.py` schwärzt
+# E-Mail-Adressen, Push-Endpoints und Token. Gerade der Worker ist die
+# Stelle, an der solche Werte im Log landen könnten — er hantiert mit
+# Push-Zielen.
+richte_logging_ein(get_settings().log_format, get_settings().log_level)
 logger = logging.getLogger(__name__)
 
 JOB_ID = "pruflauf"
+AUFRAEUM_JOB_ID = "aufraeumen"
 
 
 async def fuehre_lauf_aus(
@@ -83,6 +87,20 @@ async def lauf_sicher(
     )
 
 
+async def aufraeumen_sicher(settings: Settings) -> None:
+    """Alte Daten löschen — und dabei genauso wenig sterben wie der Prüflauf.
+
+    Eigener Job statt eines Anhängsels am Prüflauf: Der Prüflauf läuft alle
+    fünf Minuten, das Aufräumen einmal am Tag. Zusammengelegt liefe entweder
+    das Löschen 288-mal zu oft oder der Prüflauf 288-mal zu selten.
+    """
+    try:
+        async with SessionFactory() as session:
+            await loesche_alte_daten(session, settings.aufbewahrung_tage)
+    except Exception:  # noqa: BLE001 — bewusst: der Scheduler muss weiterlaufen
+        logger.exception("Aufräumen abgebrochen — der nächste Takt versucht es erneut.")
+
+
 def erstelle_scheduler(
     suche: Flugsuche,
     settings: Settings,
@@ -107,6 +125,15 @@ def erstelle_scheduler(
         minutes=settings.pruflauf_intervall_minuten,
         args=[suche, settings.pruflauf_max_alarme_pro_lauf, versand, settings, texter],
         id=JOB_ID,
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.add_job(
+        aufraeumen_sicher,
+        trigger="interval",
+        hours=settings.aufraeumen_intervall_stunden,
+        args=[settings],
+        id=AUFRAEUM_JOB_ID,
         max_instances=1,
         coalesce=True,
     )

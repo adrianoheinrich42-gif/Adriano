@@ -13,6 +13,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from app.config import get_settings
+from app.core.ratelimit import allgemein, teuer
 
 REQUIRED_TABLES = {
     "users",
@@ -70,3 +71,17 @@ async def db_session() -> AsyncIterator[AsyncSession]:
     finally:
         await connection.close()
         await engine.dispose()
+
+
+@pytest.fixture(autouse=True)
+def frische_ratelimits() -> None:
+    """Die Rate-Limit-Zähler vor jedem Test leeren (M12).
+
+    `autouse`, weil es sonst irgendwann jemanden erwischt: Die Zähler liegen
+    im **Arbeitsspeicher des Prozesses** und überleben deshalb Testgrenzen.
+    Ein künftiger Test, der denselben Nutzer sechzehnmal auf
+    `/alerts/entwurf` schickt, bekäme ohne diesen Fixture ein 429 — und die
+    Ursache stünde in einer ganz anderen Datei.
+    """
+    allgemein.zuruecksetzen()
+    teuer.zuruecksetzen()

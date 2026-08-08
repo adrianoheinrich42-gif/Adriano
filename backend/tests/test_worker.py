@@ -13,7 +13,7 @@ from typing import Any
 import pytest
 
 from app.config import get_settings
-from app.jobs.worker import JOB_ID, erstelle_scheduler, lauf_sicher
+from app.jobs.worker import AUFRAEUM_JOB_ID, JOB_ID, erstelle_scheduler, lauf_sicher
 from app.services.pruflauf import LaufBericht, LaufErgebnis
 from tests.attrappen import FlugsucheAttrappe
 from tests.test_auth import make_settings
@@ -23,14 +23,26 @@ def test_scheduler_bekommt_genau_einen_job():
     scheduler = erstelle_scheduler(FlugsucheAttrappe(), make_settings())
 
     jobs = scheduler.get_jobs()
-    assert [job.id for job in jobs] == [JOB_ID]
+    # Seit M12 zwei: der Prüflauf alle paar Minuten, das Aufräumen einmal am
+    # Tag. Getrennt, weil zusammengelegt eines von beiden im falschen Takt liefe.
+    assert sorted(job.id for job in jobs) == sorted([JOB_ID, AUFRAEUM_JOB_ID])
 
 
 def test_takt_kommt_aus_den_einstellungen():
     scheduler = erstelle_scheduler(FlugsucheAttrappe(), make_settings(pruflauf_intervall_minuten=7))
 
-    job = scheduler.get_jobs()[0]
+    job = scheduler.get_job(JOB_ID)
     assert job.trigger.interval.total_seconds() == 7 * 60
+
+
+def test_aufraeumen_laeuft_in_einem_ganz_anderen_takt():
+    """Einmal täglich statt alle paar Minuten — es geht um Monate alte Zeilen."""
+    scheduler = erstelle_scheduler(
+        FlugsucheAttrappe(), make_settings(aufraeumen_intervall_stunden=24)
+    )
+
+    job = scheduler.get_job(AUFRAEUM_JOB_ID)
+    assert job.trigger.interval.total_seconds() == 24 * 3600
 
 
 def test_laeufe_ueberlagern_sich_nicht_und_stauen_sich_nicht_auf():
@@ -41,7 +53,7 @@ def test_laeufe_ueberlagern_sich_nicht_und_stauen_sich_nicht_auf():
     ein Neustart nach längerer Pause alle verpassten Takte hintereinander
     nachholen — genau dann, wenn ohnehin gerade alles fällig ist.
     """
-    job = erstelle_scheduler(FlugsucheAttrappe(), make_settings()).get_jobs()[0]
+    job = erstelle_scheduler(FlugsucheAttrappe(), make_settings()).get_job(JOB_ID)
 
     assert job.max_instances == 1
     assert job.coalesce is True
@@ -50,7 +62,7 @@ def test_laeufe_ueberlagern_sich_nicht_und_stauen_sich_nicht_auf():
 def test_limit_wird_an_den_lauf_durchgereicht():
     job = erstelle_scheduler(
         FlugsucheAttrappe(), make_settings(pruflauf_max_alarme_pro_lauf=3)
-    ).get_jobs()[0]
+    ).get_job(JOB_ID)
 
     assert job.args[1] == 3
 

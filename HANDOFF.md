@@ -7,7 +7,8 @@ Zuerst `CLAUDE.md` lesen, dann diese Datei, dann `git log` / `git status`.
 Meilenstein-Commits (dazwischen liegen reine Doku-Commits):
 
 ```
-M11 — Freitext-Eingabe: Sprache füllt das Formular vor  ← neu
+M12a — Härtung: Rate Limiting, Logging, Löschrecht, Aufräumen  ← neu
+29a5254 M11 — Freitext-Eingabe: Sprache füllt das Formular vor
 836091f M10 — Claude formuliert die Benachrichtigungstexte
 09029bc M9 — Ergebnisanzeige: Detailansicht + Deep-Link
 46005f3 M8 — Push-Benachrichtigungen (Web-Push, PWA)
@@ -29,9 +30,13 @@ beschreiben** und das ausgefüllte Formular bestätigen, bekommt eine Push, wenn
 ein Preis passt — von Claude formuliert — und sieht nach dem Tippen darauf
 direkt die Detailansicht mit Einordnung, Preisverlauf und den gefundenen Flügen.
 
-**Noch ein Meilenstein: M12 (Deployment/Härtung).** Alles andere steht.
+**Von M12 ist die Härtung fertig** — Rate Limiting, Logging ohne
+personenbezogene Daten, `DELETE /me`, Aufräumen alter Daten, echte
+Readiness-Probe. **Offen ist nur noch das Deployment**, und das hängt an
+Konten, die nur der Nutzer anlegen kann.
 
-Endpunkte: `GET /health` · `GET /me` · `POST/GET/PATCH/DELETE /alerts` ·
+Endpunkte: `GET /health` · `GET /health/ready` · `GET/DELETE /me` ·
+`POST/GET/PATCH/DELETE /alerts` ·
 `POST /alerts/entwurf` · `GET /alerts/{id}/offers` · `GET /alerts/{id}/verlauf` ·
 `GET /offers/{id}` · `GET /push/config` · `POST/DELETE /push/subscriptions`.
 Prozesse: API (`app.main:app`) **und** Worker (`app.jobs.worker`).
@@ -73,9 +78,65 @@ Keins davon blockiert die Entwicklung, alle drei den echten Betrieb:
   (`manifest.json`, `sw.js`, `push.js`, Icons), Migration `22e16687014f`.
 - **M9** — `services/ergebnisse.py`, `schemas/ergebnis.py`, `web/detail.js`.
 - **M10** — `services/claude.py`, Migration `4b42be3a6b6e`.
-- **M11** — siehe nächster Abschnitt.
+- **M11** — `services/nlp.py`, `POST /alerts/entwurf`, Freitextfeld.
+- **M12 (Härtung)** — siehe nächster Abschnitt. Deployment steht noch aus.
 
-## Zuletzt geändert — M11 (Freitext-Eingabe)
+## Zuletzt geändert — M12, Teil 1: Härtung
+
+Alles aus der M12-Zeile des Projektplans außer dem Deployment. Es sind fünf
+Dinge, die nichts miteinander zu tun haben außer dem Zeitpunkt: Sie werden
+gebraucht, *bevor* die App im Netz steht.
+
+| Was | Wo | Warum jetzt |
+|---|---|---|
+| Rate Limiting | `core/ratelimit.py` | Ohne Bremse ist jeder Endpunkt eine offene Rechnung |
+| Logging ohne Personenbezug | `core/logging.py` | DSGVO 8.10; im Netz liest jemand die Logs |
+| `DELETE /me` | `api/routes/auth.py`, `services/users.py` | Das Löschrecht braucht einen Weg |
+| Alte Daten löschen | `services/aufraeumen.py` | Datenminimierung; die Tabellen wachsen sonst unbegrenzt |
+| `GET /health/ready` | `api/routes/health.py` | Der Hoster braucht 503, nicht 200 |
+
+Dazu im Frontend ein „Konto und alle Daten löschen"-Knopf ganz unten in der
+Alarmliste — ein Löschrecht, das niemand erreicht, ist keins.
+
+Das Alarm-Limit aus derselben Zeile des Projektplans stand schon seit M3
+(`SELECT … FOR UPDATE` in `services/price_alerts.py`).
+
+### Entscheidungen aus der Härtung
+
+- **Rate Limiting im Arbeitsspeicher, nicht in Redis.** Dieselbe Haltung wie
+  beim Scheduler in M6. Der Preis ist benannt: Bei zwei Instanzen zählt jede
+  für sich, ein Neustart setzt zurück. Der Umbau beträfe genau ein Modul.
+- **Zwei Grenzen, weil es zwei Kostenarten gibt:** allgemein 120/min, für
+  `POST /alerts/entwurf` 15/Stunde. Der eine Endpunkt schreibt in unsere
+  Datenbank, der andere auf unsere Anthropic-Rechnung.
+- **`/health` wird nicht gebremst.** Der Hoster fragt im Sekundentakt; ein 429
+  dort hieße für ihn „Instanz kaputt". Ausgerechnet die Bremse würde den
+  Ausfall auslösen, den sie verhindern soll.
+- **Abgelehnte Anfragen zählen nicht mit.** Sonst schöbe ein Skript in der
+  Schleife die Sperre endlos vor sich her, und der Nutzer wäre dauerhaft
+  gesperrt, obwohl er längst aufgehört hat.
+- **Die Sperre gegen Personenbezug sitzt im Formatierer**, nicht in der
+  Disziplin beim Loggen. Der Grund ist `logger.exception()`: Der Text kommt
+  aus der Ausnahme, und bei einem Datenbankfehler steht darin gern die
+  komplette Anweisung samt E-Mail. Diese Zeile hat niemand geschrieben.
+- **Nutzer-IDs bleiben im Log stehen.** Ohne sie ließe sich ein Fehlerbericht
+  keinem Vorgang mehr zuordnen. Eine UUID allein sagt nichts über einen
+  Menschen — genau deshalb steht in Projektplan 8.10 „nur User-IDs".
+- **`DELETE /me` ist eine Zeile SQL.** `ON DELETE CASCADE` ab `users` hängt
+  seit M1 überall; hier zahlt sich das aus. Eine Aufzählung im Code veraltete
+  beim nächsten neuen Tabellchen.
+- **Zwei Rückfragen vor dem Löschen, die zweite verlangt Tippen.** Ein
+  einzelnes `confirm()` klickt man versehentlich weg, ein getipptes Wort
+  nicht. Die Rückfrage steht in der Oberfläche, nicht in der API — der
+  Endpunkt soll tun, was er heißt.
+- **Aufräumen ist ein eigener Scheduler-Job.** Der Prüflauf läuft alle fünf
+  Minuten, das Löschen einmal am Tag. Zusammengelegt liefe eines von beiden
+  288-mal im falschen Takt.
+- **`flight_offers` wird beim Aufräumen nicht angefasst.** Die Zeilen hängen
+  am Alarm und verschwinden mit ihm; nach Alter zu löschen hieße, jemandem
+  Funde wegzunehmen, die er sich gerade ansieht.
+
+## Davor geändert — M11 (Freitext-Eingabe)
 
 „Im Oktober für zwei Wochen von München nach Lissabon, höchstens 250 €" füllt
 das Alarmformular aus, statt acht Felder von Hand zu tippen.
@@ -275,9 +336,29 @@ Ausführlich in `CLAUDE.md`; die Merksätze:
 
 ## Verifizierter Zustand (real nachgeprüft, nicht behauptet)
 
-- **Backend-Tests:** mit DB `358 passed`; ohne DB `224 passed, 134 skipped`.
+- **Backend-Tests:** mit DB `394 passed`; ohne DB `247 passed, 147 skipped`.
   `ruff` und `mypy app` (strict) sauber, `alembic check` ohne Drift.
   **Diese Zahlen sind der Soll-Wert.**
+- **Härtung im echten Chromium gegen das echte Backend — 12 Schritte:**
+  Backend mit `LOG_FORMAT=json` gestartet, alles echt außer Supabase.
+  1. `/health/ready` meldet 200 bei erreichbarer Datenbank
+  2. Nach 120 Anfragen kommt **429 mit `Retry-After`** und dem Satz „Zu viele
+     Anfragen. Bitte warte etwa eine Minute und versuche es erneut."
+  3. **Die Probe bleibt erreichbar, während der Nutzer gebremst wird**
+  4. 130 JSON-Logzeilen geprüft: **weder E-Mail noch Token darin**
+  5. Ein zweiter Nutzer kommt normal durch — die Bremse trifft nur den einen
+  6. Alarm angelegt, damit es etwas zu löschen gibt
+  7. „Konto und alle Daten löschen" ist in der App erreichbar
+  8. Abgelehnte Rückfrage löscht nichts
+  9. Falsch getipptes Bestätigungswort löscht nichts
+  10. Nach richtiger Bestätigung: abgemeldet, mit erklärendem Hinweis
+  11. **Die Datenbank bestätigt: 0 Nutzerzeilen, 0 Alarme**
+  12. Keine JavaScript-Fehler
+- **Dabei gefunden und behoben:** `Retry-After` fehlte in
+  `expose_headers` der CORS-Einstellung. Der Server schickte den Kopf mit,
+  aber der Browser darf ihn bei fremder Herkunft ohne Freigabe **nicht
+  lesen** — „bitte in 42 Sekunden erneut" wäre für den Client unsichtbar
+  gewesen.
 - **M11 im echten Chromium gegen das echte Backend — 11 Schritte:** Backend
   läuft echt (Auth, Prüfung, CRUD, Datenbank), nur der Claude-Aufruf ist eine
   Attrappe.
@@ -396,9 +477,18 @@ Ausführlich in `CLAUDE.md`; die Merksätze:
   auf RS256/ES256 erweitern (`pyjwt[crypto]`). Betrifft genau diese Datei.
 - **Die 90 Tage der Statistik sind fest**, keine Einstellung.
 - **Nur ein Suchdatum pro Alarm** — der Datums-Fächer fehlt noch.
-- **Kein Aufräumen alter Daten.** `flight_observations` und
-  `notification_logs` wachsen unbegrenzt. Kandidat für M11/M12.
+- ~~Kein Aufräumen alter Daten.~~ **Erledigt (M12):** Ein täglicher
+  Worker-Job löscht Beobachtungen und Meldungen älter als
+  `AUFBEWAHRUNG_TAGE` (Standard 365).
 - **`GET /alerts` ohne Paginierung.** Bei 5 Alarmen egal.
+- **Rate Limiting zählt je Prozess.** Bei zwei API-Instanzen wären aus
+  „120 pro Minute" faktisch 240, und ein Neustart setzt alle Zähler zurück.
+  Bewusst so (siehe `core/ratelimit.py`); mit Redis wäre es gelöst.
+- **Die Schwärzung im Log ist absichtlich großzügig.** Jede zusammenhängende
+  Zeichenkette ab 40 Zeichen gilt als Schlüssel. Ein langer Hash im Log
+  erscheint deshalb als `<key>` — der seltenere und harmlosere Fehler.
+- **Sentry ist nicht angebunden.** Ohne DSN wäre es toter Code; die Anbindung
+  ist ein Dreizeiler in `app/main.py`, sobald das Konto existiert.
 - **Token ohne `email`** → 401, weil `users.email` NOT NULL ist.
 - **`.env` und `.venv` fehlen nach Klonen/Entpacken immer** →
   `cp .env.example .env`, `uv sync`.
@@ -425,30 +515,35 @@ Ausführlich in `CLAUDE.md`; die Merksätze:
 
 ## Exakter Arbeitspunkt
 
-M11 abgeschlossen, committet und gepusht. Nichts ist halbfertig.
-**Nur noch M12 ist offen.**
+Die **Härtung aus M12** ist abgeschlossen, committet und gepusht. Nichts ist
+halbfertig. **Offen ist nur noch das Deployment** — und das braucht drei
+Anmeldungen, die niemand außer dir machen kann.
 
-## Nächste Schritte — Empfehlung: M12 (Deployment)
+## Nächste Schritte — nur noch das Deployment
 
-Der Grund ist Punkt 1 der offenen Punkte: **Push ist auf dem iPhone
-ungetestet**, und ohne HTTPS bleibt das so. Die Kernfunktion ist fertig — sie
-einmal auf echter Hardware zu sehen, ist mehr wert als eine weitere Ansicht.
+Der Code ist fertig. Was fehlt, sind drei Anmeldungen und vier Handgriffe.
 
-Kleinster Weg dahin:
+1. **Supabase-Projekt** anlegen → `docs/SUPABASE-EINRICHTEN.md`. Danach
+   `SUPABASE_URL`/`SUPABASE_JWT_SECRET` in `backend/.env`,
+   `supabaseUrl`/`supabaseAnonKey` in `web/config.js`.
+2. **Backend + Worker** auf einen Hoster mit HTTPS (Render, Railway, Fly).
+   Zwei Prozesse aus demselben Repository: `uvicorn app.main:app` und
+   `python -m app.jobs.worker`. **Genau eine Worker-Instanz** — zwei würden
+   dieselben Alarme doppelt prüfen (Grenze des APScheduler-Ansatzes).
+   Readiness-Probe auf **`/health/ready`** stellen, nicht auf `/health`.
+3. **Supabase als Datenbank**: Beim Pooler im Transaction-Modus (Port 6543)
+   zusätzlich `DATABASE_DISABLE_STATEMENT_CACHE=true` setzen — steht schon in
+   `config.py`, ist aber der Fehler, der sonst einen Abend kostet.
+4. **`web/` als statische Seite** ausliefern; `apiBaseURL` und
+   `CORS_ORIGINS` auf die echten Adressen setzen. `LOG_FORMAT=json` beim
+   Hoster, damit sich die Logs durchsuchen lassen.
+5. Auf dem **iPhone** „Zum Home-Bildschirm hinzufügen", Benachrichtigungen
+   einschalten, Alarm mit hohem Limit anlegen → es sollte klingeln. **Das ist
+   der eine Test, der bis heute aussteht.**
 
-1. Backend + Worker auf einen Hoster mit HTTPS (Render, Railway, Fly).
-2. Supabase als echte Datenbank verwenden (Pooler-Port 6543 →
-   `DATABASE_DISABLE_STATEMENT_CACHE=true`, steht schon in `config.py`).
-3. `web/` als statische Seite ausliefern, `apiBaseURL` und `CORS_ORIGINS`
-   anpassen.
-4. Auf dem iPhone „Zum Home-Bildschirm hinzufügen", Benachrichtigungen
-   einschalten, Alarm mit hohem Limit anlegen → es sollte klingeln.
-
-**Was daran alleine geht und was nicht.** Die *Härtung* aus M12 — Rate
-Limiting, strukturiertes Logging ohne personenbezogene Daten, Aufräumen alter
-Beobachtungen, `DELETE /me` — ist normale Programmierarbeit und braucht kein
-fremdes Konto. Das *Deployment* dagegen hängt an drei Anmeldungen, die nur der
-Nutzer machen kann: Hoster, Supabase, Amadeus.
+Optional danach: **Sentry** (kostenlos) aus der M12-Zeile des Projektplans.
+Bewusst nicht vorab verdrahtet — ohne DSN wäre es toter Code, und die
+Anbindung ist ein Dreizeiler in `app/main.py`, sobald das Konto existiert.
 
 ### Noch nicht überprüft
 

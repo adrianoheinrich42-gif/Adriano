@@ -488,3 +488,24 @@ dialog::backdrop {
     animation: none;
   }
 }
+
+/* M12: Der Löschen-Knopf sieht aus wie ein Verweis, nicht wie eine Aktion,
+   die man aus Versehen trifft. Er steht ganz unten in der Liste. */
+.konto {
+  margin-top: 2.5rem;
+  text-align: center;
+}
+
+.verweis {
+  padding: 0.25rem;
+  font: inherit;
+  color: var(--grau);
+  text-decoration: underline;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.verweis:hover {
+  color: var(--rot, #b3261e);
+}

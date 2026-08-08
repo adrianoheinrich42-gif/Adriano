@@ -20,6 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.api.deps import CurrentUser
 from app.config import Settings, get_settings
+from app.core.ratelimit import begrenze, teuer
 from app.schemas.nlp import EntwurfRequest, EntwurfResponse
 from app.services.nlp import Auswerter, ClaudeAuswerter, NichtVerfuegbar, erzeuge_entwurf
 
@@ -54,6 +55,10 @@ def hole_auswerter(settings: AktuelleSettings) -> Auswerter:
     "/entwurf",
     response_model=EntwurfResponse,
     summary="Freitext in einen Formularvorschlag umwandeln (legt nichts an)",
+    # Der teuerste Endpunkt des Projekts: Jeder Aufruf kostet Geld bei
+    # Anthropic. 15 pro Stunde reichen für normales Ausprobieren und decken
+    # eine Schleife, die jemand versehentlich laufen lässt.
+    dependencies=[Depends(begrenze(teuer, "entwurf"))],
 )
 async def erstelle_entwurf(
     anfrage: EntwurfRequest,

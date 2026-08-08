@@ -124,6 +124,23 @@ class Settings(BaseSettings):
         """Ohne Schlüssel formuliert der Baukasten — die App läuft vollständig."""
         return bool(self.anthropic_api_key)
 
+    # --- Härtung (M12) ---------------------------------------------------
+    # `text` ist lokal angenehmer zu lesen, `json` beim Hoster durchsuchbar.
+    # Die Sperre gegen personenbezogene Daten greift in beiden Fällen.
+    log_format: str = "text"
+    log_level: str = "INFO"
+
+    # Wie lange Beobachtungen und Versandprotokolle aufgehoben werden.
+    # DSGVO-Datenminimierung (Projektplan 8.10): Was niemand mehr braucht,
+    # soll auch nicht mehr da sein. Die Preisstatistik schaut ohnehin nur
+    # 90 Tage zurück (`VERGLEICHSFENSTER_TAGE`) — 365 lässt reichlich Luft
+    # für einen Jahresvergleich, den es noch nicht gibt.
+    aufbewahrung_tage: int = 365
+
+    # Einmal täglich reicht: Es geht um Zeilen, die Monate alt sind, nicht um
+    # Minuten. Der Lauf ist ein einzelnes DELETE.
+    aufraeumen_intervall_stunden: int = 24
+
     # --- CORS ------------------------------------------------------------
     # Welche Herkunft darf der Browser haben, wenn er das Backend anspricht?
     #

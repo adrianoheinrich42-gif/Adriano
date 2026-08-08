@@ -59,10 +59,13 @@ backend/app/
   config.py          Settings aus ENV (DB-URL, CORS, Pooler-Schalter, Supabase)
   db.py              async Engine/Session, is_database_reachable()
   api/deps.py        get_token_claims (ohne DB) + get_current_user / CurrentUser
-  api/routes/        health.py, auth.py (GET /me), price_alerts.py (CRUD /alerts),
+  api/routes/        health.py (+ /health/ready), auth.py (GET/DELETE /me),
+                     price_alerts.py (CRUD /alerts),
                      push.py (M8), ergebnisse.py (M9: /offers, /verlauf),
                      nlp.py (M11: POST /alerts/entwurf — legt nichts an)
   core/security.py   JWT-Prüfung der Supabase-Token (HS256)
+  core/ratelimit.py  M12: gleitendes Fenster je Nutzer, im Arbeitsspeicher
+  core/logging.py    M12: Formatierer, der Personenbezug schwärzt
   models/            6 SQLAlchemy-Tabellen (+ mixins.py, __init__ importiert alle)
   schemas/           price_alert.py (API-Ein/Ausgabe), flight_offer.py (intern),
                      ergebnis.py (M9), nlp.py (M11: Entwurf)
@@ -72,8 +75,9 @@ backend/app/
                      push.py (M8: Textbaukasten, Bremsen, Web-Push-Versand),
                      ergebnisse.py (M9: Angebote + Preisverlauf lesen),
                      claude.py (M10: Protokoll Texter, Prompt, Antwortprüfung),
-                     nlp.py (M11: Sprache → Suchkriterien + Plausibilitätsprüfung)
-  jobs/worker.py     M6: APScheduler-Prozess, ruft den Prüflauf im Takt auf
+                     nlp.py (M11: Sprache → Suchkriterien + Plausibilitätsprüfung),
+                     aufraeumen.py (M12: alte Beobachtungen/Meldungen löschen)
+  jobs/worker.py     M6: APScheduler-Prozess (Prüflauf + ab M12 Aufräumen)
   alembic/           env.py (async, URL aus config), versions/ (2 Migrationen)
 backend/scripts/     amadeus_suche.py — Handsuche, vapid_schluessel.py (M8)
 backend/tests/       *.py ohne DB/Netz, integration/ mit DB, fixtures/ gespeicherte
@@ -146,8 +150,11 @@ Statistik), `flight_offers` (konkrete Angebote), `device_tokens` (Push-Ziel),
   Leitplanke 2 meint. Der `service_role`-Schlüssel gehört **nie** dorthin.
 - **APScheduler (ab M6), 1 Worker-Instanz:** einfach, kein Redis. Grenze: zwei
   Instanzen = doppelte Läufe → dann externer Cron + `FOR UPDATE SKIP LOCKED`.
-- **`/health` gibt immer HTTP 200** (Zustand im Body) — hält den Client simpel;
-  echte 503-Readiness erst bei M12.
+- **Zwei Health-Endpunkte mit verschiedenen Adressaten.** `/health` gibt
+  **immer 200** (Zustand im Body) — die App soll „Backend läuft, Datenbank
+  hakt" anzeigen können. `/health/ready` gibt bei Problemen **503**, denn
+  Render und Railway kennen nur „200 = nimm Verkehr". Ein immer-200-Endpunkt
+  wäre als Readiness-Probe nutzlos.
 - **JWT-Prüfung nur symmetrisch (HS256)** — ein gemeinsames Geheimnis, kein
   JWKS-Abruf, keine Krypto-Bibliothek. Erweiterung auf RS256/ES256 betrifft
   ausschließlich `app/core/security.py`; Endpunkte kennen nur `CurrentUser`.
@@ -290,6 +297,31 @@ Statistik), `flight_offers` (konkrete Angebote), `device_tokens` (Push-Ziel),
 - **Der Entwurfs-Endpunkt verlangt Anmeldung**, obwohl er nichts speichert —
   sonst wäre er ein offener Endpunkt auf unsere Anthropic-Rechnung. Aus
   demselben Grund ist die Eingabe auf 500 Zeichen gedeckelt.
+- **Rate Limiting im Arbeitsspeicher, nicht in Redis** — dieselbe Haltung wie
+  beim Scheduler: einfach anfangen, wachsen wenn nötig. Preis: Bei zwei
+  Instanzen zählt jede für sich, ein Neustart setzt zurück. Der Umbau beträfe
+  nur `core/ratelimit.py`.
+- **Zwei Grenzen, weil zwei Kostenarten.** Allgemein 120/min, für
+  `POST /alerts/entwurf` 15/Stunde — der Endpunkt ruft Claude auf und kostet
+  echtes Geld. Eine gemeinsame Grenze müsste sich am teuersten orientieren.
+- **`/health` wird nicht gebremst.** Der Hoster fragt im Sekundentakt; ein 429
+  hieße für ihn „Instanz kaputt". Ausgerechnet die Bremse würde den Ausfall
+  auslösen, den sie verhindern soll.
+- **Abgelehnte Anfragen verlängern das Fenster nicht.** Sonst schöbe ein
+  Skript in der Schleife die Sperre endlos vor sich her.
+- **Die Sperre gegen Personenbezug sitzt im Log-Formatierer**, nicht in der
+  Disziplin beim Loggen. `logger.exception()` schreibt Ausnahmetexte mit, und
+  in denen steht bei einem DB-Fehler gern die komplette Anweisung samt
+  Adresse — diese Zeile hat niemand geschrieben. Nutzer-**IDs** bleiben
+  stehen; ohne sie ließe sich kein Fehlerbericht zuordnen.
+- **`DELETE /me` ist eine Zeile SQL**, weil `ON DELETE CASCADE` ab `users`
+  überall hängt. Eine Aufzählung im Code veraltete beim nächsten neuen
+  Tabellchen.
+- **`Retry-After` muss in `expose_headers`** stehen. Sonst schickt der Server
+  ihn mit, und der Browser darf ihn bei fremder Herkunft trotzdem nicht
+  lesen. Im Browsertest aufgefallen.
+- **Aufräumen ist ein eigener Job**, nicht ein Anhängsel am Prüflauf: Der eine
+  läuft alle 5 Minuten, der andere einmal am Tag.
 - **Zwei Eigenheiten der Amadeus-API:** `maxPrice` nimmt nur ganze
   Währungseinheiten (wir runden **ab**, nie über das Nutzerlimit), und es gibt
   keinen „max. N Umstiege"-Parameter — nur `nonStop`. Der Rest wird nach dem
@@ -328,8 +360,8 @@ DB: `docker compose up -d db`. Kürzel im **Makefile** (`make help`).
   Umgebung hat oft keinen Docker-Daemon, aber Postgres ist per apt installierbar
   (`/usr/lib/postgresql/16/bin`, mit `initdb`/`pg_ctl` als User `postgres`
   starten) — so lässt sich der DB-Pfad echt testen.
-- **Ohne DB:** `pytest` meldet `224 passed, 134 skipped` (Integrationstests
-  überspringen sich selbst). Mit DB: `358 passed`. Beides ist „grün".
+- **Ohne DB:** `pytest` meldet `247 passed, 147 skipped` (Integrationstests
+  überspringen sich selbst). Mit DB: `394 passed`. Beides ist „grün".
 - **Frontend prüfen geht wirklich:** Chromium und Playwright sind vorhanden
   (`/opt/pw-browsers`, `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`, kein
   `playwright install`). Supabase lässt sich per `page.route("**/auth/v1/**")`
