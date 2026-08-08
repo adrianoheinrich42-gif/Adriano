@@ -78,7 +78,7 @@ backend/app/
                      nlp.py (M11: Sprache → Suchkriterien + Plausibilitätsprüfung),
                      aufraeumen.py (M12: alte Beobachtungen/Meldungen löschen)
   jobs/worker.py     M6: APScheduler-Prozess (Prüflauf + ab M12 Aufräumen)
-  alembic/           env.py (async, URL aus config), versions/ (2 Migrationen)
+  alembic/           env.py (async, URL aus config), versions/ (3 Migrationen)
 backend/scripts/     amadeus_suche.py — Handsuche, vapid_schluessel.py (M8)
 backend/tests/       *.py ohne DB/Netz, integration/ mit DB, fixtures/ gespeicherte
                      Amadeus-Antwort (Herkunft: fixtures/README.md lesen!),
@@ -88,6 +88,10 @@ web/                 Frontend (M4): index.html, app.js (Ansichten), api.js (nur
                      format.js (Cent↔Euro, Datum), config.js, styles.css,
                      push.js + sw.js + manifest.json + icons/ (M8: PWA & Push),
                      detail.js (M9: Einordnung, SVG-Verlauf, Angebote)
+backend/Dockerfile   ein Bild, zwei Dienste: API (Standard-CMD) und Worker
+                     (Befehl überschreiben). Enthält alembic/ fürs Migrieren.
+anleitungen/         Word-Anleitungen für alles, was nur der Nutzer tun kann
+                     (Supabase, Amadeus, Anthropic, VAPID, Deployment, iPhone)
 docs/SUPABASE-EINRICHTEN.md  Anleitung ohne Vorwissen (Nutzer-Aktion)
 docs/PROJEKTPLAN.md  Referenz: Architektur, Datenmodell, Meilensteine, Risiken
 docs/PLATTFORM-WEB.md  iOS→Web-Wechsel + alle Deltas zum Projektplan
@@ -124,6 +128,10 @@ Statistik), `flight_offers` (konkrete Angebote), `device_tokens` (Push-Ziel),
   verständlicher deutscher Text zeigen, nie Statuscode.
 - **Nur `web/api.js` ruft `fetch` aufs eigene Backend auf.** Eine Stelle für
   Token, Zeitlimit und Fehlerübersetzung.
+- **Der Client formuliert keine Bewertungssätze.** Seit M10 kommt der
+  erklärende Satz fertig aus dem Backend (`erklaerung` im Verlauf). Bis M9
+  baute `detail.js` ihn selbst — ein Riss in Leitplanke 1 und dieselbe
+  Aussage an zwei Stellen.
 - **Im Frontend `textContent`, nie `innerHTML`.** Auch bei Daten aus dem
   eigenen Backend — HTML aus Daten zusammenkleben ist die Gewohnheit, aus der
   später Lücken werden.
@@ -380,3 +388,7 @@ DB: `docker compose up -d db`. Kürzel im **Makefile** (`make help`).
   Modell-ID nie in Commits/Code schreiben.
 - **`docs/PROJEKTPLAN.md`** ist die inhaltliche Referenz; bei Client/Push gilt
   **`docs/PLATTFORM-WEB.md`** vor. Beide bei größeren Änderungen aktuell halten.
+- **Ändert sich etwas, das der Nutzer selbst tun muss**, gehört es in
+  `anleitungen/` — nicht nur in `HANDOFF.md`. Die Anleitungen setzen kein
+  Vorwissen voraus und sind für jemanden geschrieben, der zum ersten Mal
+  deployt.

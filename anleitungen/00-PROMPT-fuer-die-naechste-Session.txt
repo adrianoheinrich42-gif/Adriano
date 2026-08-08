@@ -1,0 +1,93 @@
+═══════════════════════════════════════════════════════════════════════════
+  PROMPT FÜR DIE NÄCHSTE CLAUDE-CODE-SITZUNG
+  Einfach komplett kopieren und als erste Nachricht einfügen.
+═══════════════════════════════════════════════════════════════════════════
+
+Kopiere ab hier:
+
+---------------------------------------------------------------------------
+
+Ich arbeite an einer Flugpreis-Alarm-App (Lern-/Portfolioprojekt, Student
+"AI for Business", Anfänger). Projektsprache ist Deutsch — Code-Kommentare,
+Doku und Commit-Messages auf Deutsch. Erkläre mir Entscheidungen
+anfängerfreundlich und arbeite in kleinen Schritten.
+
+BITTE ZUERST, IN DIESER REIHENFOLGE:
+
+1. Lies CLAUDE.md (Dauerwissen: Architektur, Leitplanken, Entscheidungen).
+2. Lies HANDOFF.md (aktueller Stand und nächste Schritte).
+3. Prüfe den echten Repo-Zustand mit `git log --oneline -5` und
+   `git status` — verlasse dich nicht allein auf die Doku.
+4. Lass die Tests laufen und sag mir die Zahlen:
+       cd backend && uv run pytest -q
+   Sollwert: 394 passed mit Datenbank, 247 passed / 147 skipped ohne.
+   Läuft keine Datenbank, ist "skipped" normal und kein Fehler.
+
+STAND: Der Code ist fertig. M0 bis M11 sind abgeschlossen, von M12 ist die
+Härtung erledigt (Rate Limiting, Logging ohne personenbezogene Daten,
+DELETE /me, Aufräumen alter Daten, /health/ready). Offen ist nur noch das
+Deployment.
+
+WAS ICH INZWISCHEN ERLEDIGT HABE:
+[ ] Supabase-Projekt (Anmeldedienst + Datenbank)
+[ ] Amadeus-Zugang (Flugdaten)
+[ ] Anthropic-Schlüssel (Claude-Texte)
+[ ] VAPID-Schlüsselpaar (Push)
+[ ] Deployment beim Hoster
+[ ] Push auf dem iPhone getestet
+
+  → Bitte hake ab, was zutrifft, und lösche den Rest oder lass ihn stehen.
+    Anleitungen dazu liegen im Ordner anleitungen/ als Word-Dateien.
+
+WAS ICH JETZT MÖCHTE:
+[hier eintragen, was du vorhast — Beispiele:]
+  - "Ich habe Supabase und Amadeus eingerichtet. Lass uns lokal einmal
+     komplett durchspielen und dann eine echte Amadeus-Antwort als Fixture
+     speichern."
+  - "Deployment ist durch, aber die App meldet 'Keine Verbindung zum
+     Server'. Hilf mir beim Suchen."
+  - "Alles läuft. Ich möchte, dass sich Alarme bearbeiten lassen — das
+     Backend kann PATCH schon, es fehlt nur die Oberfläche."
+  - "Claude formuliert jetzt wirklich. Lass uns die Textqualität prüfen und
+     das Golden-Set aus Projektplan 9.4 bauen."
+
+REGELN, DIE IMMER GELTEN (stehen ausführlich in CLAUDE.md):
+  - Der Client ist dumm: Jede Bewertung passiert im Backend.
+  - Kein Schlüssel im Client — Amadeus, Anthropic und VAPID gehören
+    ausschließlich in Backend-Umgebungsvariablen.
+  - Claude entscheidet nicht, Claude formuliert. Fällt er aus, funktioniert
+    die Kernfunktion per Fallback weiter.
+  - Kein Test darf ins Netz.
+  - Kein Framework und kein Node im Frontend.
+  - Geld immer als ganze Cent, nie als Kommazahl.
+  - Verifizieren statt behaupten: Änderungen mit Tests oder curl belegen.
+  - Am Ende HANDOFF.md aktualisieren, CLAUDE.md nur bei grundsätzlichen
+    Änderungen. Committen und pushen, keinen Pull Request ohne Auftrag.
+
+Commit-Footer für jeden Commit:
+  Co-Authored-By: Claude <noreply@anthropic.com>
+  Claude-Session: <URL der laufenden Sitzung>
+
+---------------------------------------------------------------------------
+Bis hier kopieren.
+
+
+═══════════════════════════════════════════════════════════════════════════
+  ZUSATZ: Falls die Sitzung in einer FRISCHEN Umgebung startet
+  (frisch entpacktes ZIP, noch nichts eingerichtet)
+═══════════════════════════════════════════════════════════════════════════
+
+Dann häng diesen Absatz zusätzlich an:
+
+Die Umgebung ist frisch. Bitte richte sie zuerst ein:
+
+    cd backend
+    cp .env.example .env      # .env fehlt immer, sie ist gitignored
+    uv sync                   # legt .venv an (nicht im ZIP enthalten)
+    docker compose up -d db   # oder lokales Postgres
+    uv run alembic upgrade head
+    uv run pytest -q
+
+Ohne Docker-Daemon: Postgres lässt sich per apt installieren und mit
+initdb/pg_ctl als Benutzer "postgres" starten. Steht in HANDOFF.md unter
+"Stolperfallen dieser Umgebung".
